@@ -92,6 +92,26 @@ func startWatching(ch chan bool) error {
 	return nil
 }
 
+func startService(conn net.Conn, s *Status) error {
+	name := s.Config.ServiceName()
+	encodeResponse(conn, respOk, fmt.Sprintf("starting %s", name))
+	go s.Run()
+	serr := <-s.Ch
+	if serr != nil {
+		return encodeResponse(conn, respErr, fmt.Sprintf("error starting %s: %s", name, serr))
+	}
+	return encodeResponse(conn, respOk, fmt.Sprintf("started %s", name))
+}
+
+func stopService(conn net.Conn, s *Status) (bool, error) {
+	name := s.Config.ServiceName()
+	encodeResponse(conn, respOk, fmt.Sprintf("stopping %s", name))
+	if serr := s.Stop(); serr != nil {
+		return false, encodeResponse(conn, respErr, fmt.Sprintf("error stopping %s: %s", name, serr))
+	}
+	return true, encodeResponse(conn, respOk, fmt.Sprintf("stopped %s", name))
+}
+
 func serveConn(conn net.Conn) error {
 	defer conn.Close()
 	args, err := decodeArgs(conn)
@@ -131,26 +151,22 @@ func serveConn(conn net.Conn) error {
 			if st.State == StateStarted {
 				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is already running", name))
 			} else {
-				go st.Run()
-				err = encodeResponse(conn, respOk, fmt.Sprintf("started %s", name))
+				err = startService(conn, st)
 			}
 		case "stop":
 			if st.State != StateStarted {
 				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is not running", name))
 			} else {
-				st.Stop()
-				err = encodeResponse(conn, respOk, fmt.Sprintf("stopped %s", name))
+				_, err = stopService(conn, st)
 			}
 		case "restart":
+			var stopped bool
 			if st.State == StateStarted {
-				st.Stop()
-				err = encodeResponse(conn, respOk, fmt.Sprintf("stopped %s", name))
-				if err != nil {
-					break
-				}
+				stopped, err = stopService(conn, st)
 			}
-			go st.Run()
-			err = encodeResponse(conn, respOk, fmt.Sprintf("started %s", name))
+			if stopped {
+				err = startService(conn, st)
+			}
 		case "list":
 			var buf bytes.Buffer
 			w := tabwriter.NewWriter(&buf, 4, 4, 4, ' ', 0)
@@ -161,6 +177,10 @@ func serveConn(conn net.Conn) error {
 				switch v.State {
 				case StateStopped:
 					fmt.Fprint(w, "STOPPED")
+				case StateStopping:
+					fmt.Fprint(w, "STOPPING")
+				case StateStarting:
+					fmt.Fprint(w, "STARTING")
 				case StateStarted:
 					if v.Restarts > 0 {
 						fmt.Fprintf(w, "RUNNING since %s - %d restarts", v.Started, v.Restarts)
@@ -262,9 +282,15 @@ func daemonMain() error {
 	<-quitWatcher
 	<-quitServer
 	services.Lock()
+	var wg sync.WaitGroup
+	wg.Add(len(services.status))
 	for _, v := range services.status {
-		v.Stop()
+		go func() {
+			v.Stop()
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 	services.Unlock()
 	log.Debugf("daemon exiting")
 	return nil

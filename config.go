@@ -48,7 +48,7 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 	}
 	dir := c.Dir
 	if dir == "" {
-		dir = filepath.Base(fields[0])
+		dir = filepath.Dir(fields[0])
 	}
 	cmd := &exec.Cmd{Path: fields[0], Args: fields, Dir: dir}
 	for k, v := range c.Environment {

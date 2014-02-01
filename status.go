@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"gnd.la/log"
+	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -12,8 +14,14 @@ type State uint8
 
 const (
 	StateStopped State = iota
+	StateStopping
 	StateStarted
+	StateStarting
 	StateFailed
+)
+
+const (
+	minTime = time.Second
 )
 
 type Status struct {
@@ -24,10 +32,20 @@ type Status struct {
 	Started  time.Time
 	Restarts int
 	Err      error
+	Ch       chan error
 }
 
 func newStatus(cfg *Config) *Status {
-	return &Status{Config: cfg}
+	return &Status{Config: cfg, Ch: make(chan error)}
+}
+
+func (s *Status) sendErr(err error) bool {
+	select {
+	case s.Ch <- err:
+		return true
+	default:
+	}
+	return false
 }
 
 func (s *Status) Run() {
@@ -60,16 +78,28 @@ func (s *Status) Run() {
 			break
 		}
 		s.Unlock()
+		time.AfterFunc(time.Duration(float64(minTime)*1.1), func() {
+			s.Lock()
+			defer s.Unlock()
+			if s.Err == nil {
+				s.sendErr(nil)
+				log.Infof("Started %s", name)
+			}
+		})
 		err = s.Cmd.Wait()
 		s.Lock()
 		if s.State != StateStarted {
+			s.Cmd = nil
+			s.sendErr(nil)
 			s.Unlock()
 			break
 		}
-		if since := time.Since(s.Started); since < time.Second {
+		if since := time.Since(s.Started); since < minTime {
 			// Consider failure
+			s.Cmd = nil
 			s.State = StateFailed
 			s.Err = fmt.Errorf("exited too fast (%s)", since)
+			s.sendErr(s.Err)
 			s.Unlock()
 			log.Errorf("%s %s", name, s.Err)
 			break
@@ -80,13 +110,47 @@ func (s *Status) Run() {
 	}
 }
 
-func (s *Status) Stop() {
+func (s *Status) Stop() error {
+	s.Lock()
+	s.State = StateStopping
+	name := s.Config.ServiceName()
+	cmd := s.Cmd
+	s.Unlock()
+	if cmd == nil {
+		s.Lock()
+		s.State = StateStopped
+		s.Unlock()
+		return nil
+	}
+	log.Infof("Stopping %s", name)
+	if cmd.Process != nil {
+		cmd.Process.Signal(os.Signal(syscall.SIGTERM))
+	}
+	stopped := false
+	select {
+	case <-s.Ch:
+		stopped = true
+	case <-time.After(10 * time.Second):
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}
+	if !stopped {
+		select {
+		case <-s.Ch:
+		case <-time.After(2 * time.Second):
+			s.Lock()
+			s.State = StateStarted
+			s.Unlock()
+			err := fmt.Errorf("could not stop %s, probably stuck", name)
+			log.Error(err)
+			return err
+		}
+	}
 	s.Lock()
 	s.State = StateStopped
 	s.Restarts = 0
 	s.Unlock()
-	if s.Cmd != nil && s.Cmd.Process != nil {
-		log.Infof("Stopping %s", s.Config.ServiceName())
-		s.Cmd.Process.Kill()
-	}
+	log.Infof("Stopped %s", name)
+	return nil
 }
