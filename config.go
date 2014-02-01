@@ -82,10 +82,13 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 			gid = uint32(gi)
 		}
 	}
+	var cred *syscall.Credential
 	if uid != 0 || gid != 0 {
-		attr := &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid}}
+		cred = &syscall.Credential{Uid: uid, Gid: gid}
+		attr := &syscall.SysProcAttr{Credential: cred}
 		cmd.SysProcAttr = attr
 	}
+	log.Debugf("%s wd: %s, env: %s, cred: %+v", c.ServiceName(), dir, cmd.Env, cred)
 	return cmd, nil
 }
 
