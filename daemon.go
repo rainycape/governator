@@ -236,20 +236,22 @@ func startServer(ch chan bool) error {
 			conns <- conn
 		}
 	}()
-	for {
-		select {
-		case <-ch:
-			os.Remove(SocketPath)
-			ch <- true
-			return nil
-		case conn := <-conns:
-			go func() {
-				if err := serveConn(conn); err != nil {
-					log.Errorf("error serving connection: %s", err)
-				}
-			}()
+	go func() {
+		for {
+			select {
+			case <-ch:
+				os.Remove(SocketPath)
+				ch <- true
+				return
+			case conn := <-conns:
+				go func() {
+					if err := serveConn(conn); err != nil {
+						log.Errorf("error serving connection: %s", err)
+					}
+				}()
+			}
 		}
-	}
+	}()
 	return nil
 }
 
