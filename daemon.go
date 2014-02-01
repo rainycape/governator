@@ -263,6 +263,8 @@ func daemonMain() error {
 	if u.Uid != "0" {
 		return errors.New("govenator daemon must be run as root")
 	}
+	// Make logs directory
+	os.Mkdir(LogDir, 0755)
 	configs, err := ParseConfigs()
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"gnd.la/log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -33,10 +34,25 @@ type Status struct {
 	Restarts int
 	Err      error
 	Ch       chan error
+	logger   *logger
 }
 
 func newStatus(cfg *Config) *Status {
 	return &Status{Config: cfg, Ch: make(chan error)}
+}
+
+func (s *Status) initLogger() {
+	if s.logger != nil {
+		s.logger.Close()
+		s.logger = nil
+	}
+	logPath := filepath.Join(LogDir, s.Config.ServiceName()+".log.gz")
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Errorf("error opening log file %s: %s", logPath, err)
+		return
+	}
+	s.logger = newLogger(f)
 }
 
 func (s *Status) sendErr(err error) bool {
@@ -51,6 +67,7 @@ func (s *Status) sendErr(err error) bool {
 func (s *Status) Run() {
 	s.Lock()
 	s.State = StateStarted
+	s.initLogger()
 	s.Unlock()
 	for {
 		s.Lock()
@@ -66,6 +83,10 @@ func (s *Status) Run() {
 			log.Errorf("could not initialize %s: %s", name, err)
 			s.Unlock()
 			break
+		}
+		if s.logger != nil {
+			cmd.Stdout = s.logger.stdout
+			cmd.Stderr = s.logger.stderr
 		}
 		s.Cmd = cmd
 		s.Started = time.Now()
@@ -152,5 +173,9 @@ func (s *Status) Stop() error {
 	s.Restarts = 0
 	s.Unlock()
 	log.Infof("Stopped %s", name)
+	if s.logger != nil {
+		s.logger.Close()
+		s.logger = nil
+	}
 	return nil
 }
