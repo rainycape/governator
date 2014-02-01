@@ -1,0 +1,7 @@
+*.pyc
+*.so
+*.o
+*.a
+.libs/
+/governator
+.*.swp
