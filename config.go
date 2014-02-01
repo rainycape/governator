@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -52,6 +53,9 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 	cmd := &exec.Cmd{Path: fields[0], Args: fields, Dir: dir}
 	for k, v := range c.Environment {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	if _, ok := c.Environment["GOMAXPROCS"]; !ok {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GOMAXPROCS=%d", runtime.NumCPU()))
 	}
 	for _, v := range os.Environ() {
 		if p := strings.IndexByte(v, '='); p >= 0 {
