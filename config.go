@@ -121,7 +121,7 @@ func ParseConfigs() ([]*Config, error) {
 	var configs []*Config
 	for _, v := range files {
 		name := v.Name()
-		if name[0] == '.' {
+		if shouldIgnoreFile(name) {
 			continue
 		}
 		cfg := ParseConfig(name)
@@ -129,4 +129,15 @@ func ParseConfigs() ([]*Config, error) {
 		configs = append(configs, cfg)
 	}
 	return configs, nil
+}
+
+func shouldIgnoreFile(name string) bool {
+	if name == "" || name[0] == '.' || strings.HasSuffix(name, "~") {
+		return true
+	}
+	info, err := os.Stat(filepath.Join(*configDir, name))
+	if err != nil || info.Size() == 0 || info.IsDir() {
+		return true
+	}
+	return false
 }

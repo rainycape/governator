@@ -42,6 +42,10 @@ type Status struct {
 	Err      error
 }
 
+func newStatus(cfg *Config) *Status {
+	return &Status{Config: cfg}
+}
+
 func (s *Status) Run() {
 	s.Lock()
 	s.State = StateStarted
@@ -83,6 +87,11 @@ func (s *Status) Run() {
 			break
 		}
 		s.Lock()
+		if s.State != StateStarted {
+			s.Restarts = 0
+			s.Unlock()
+			break
+		}
 		s.Restarts++
 		s.Unlock()
 		log.Infof("%s exited with error %s - restarting", name, err)
