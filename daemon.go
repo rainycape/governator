@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -21,6 +22,13 @@ var services struct {
 	sync.Mutex
 	status []*Status
 }
+
+type statusByPriority []*Status
+
+func (s statusByPriority) Len() int           { return len(s) }
+func (s statusByPriority) Less(i, j int) bool { return s[i].Config.Priority < s[j].Config.Priority }
+func (s statusByPriority) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s statusByPriority) Sort()              { sort.Stable(s) }
 
 func startWatching(ch chan bool) error {
 	watcher, err := fsnotify.NewWatcher()
@@ -43,6 +51,7 @@ func startWatching(ch chan bool) error {
 					log.Debugf("added service %s", cfg.ServiceName())
 					s := newStatus(cfg)
 					services.status = append(services.status, s)
+					statusByPriority(services.status).Sort()
 					go s.Run()
 				case ev.IsDelete() || ev.IsRename():
 					for ii := range services.status {
@@ -263,6 +272,7 @@ func daemonMain() error {
 		services.status[ii] = s
 		go s.Run()
 	}
+	statusByPriority(services.status).Sort()
 	services.Unlock()
 	quitWatcher := make(chan bool, 1)
 	if err := startWatching(quitWatcher); err != nil {
@@ -284,11 +294,13 @@ func daemonMain() error {
 	services.Lock()
 	var wg sync.WaitGroup
 	wg.Add(len(services.status))
-	for _, v := range services.status {
-		go func() {
-			v.Stop()
+	// Stop in reverse order, to respect priorities
+	for ii := len(services.status) - 1; ii >= 0; ii-- {
+		v := services.status[ii]
+		go func(s *Status) {
+			s.Stop()
 			wg.Done()
-		}()
+		}(v)
 	}
 	wg.Wait()
 	services.Unlock()

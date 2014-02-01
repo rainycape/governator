@@ -24,7 +24,7 @@ type Config struct {
 	Environment map[string]string
 	User        string
 	Group       string
-	Priority    int
+	Priority    int `default:"1000"`
 	Err         error
 }
 
