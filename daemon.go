@@ -192,9 +192,9 @@ func serveConn(conn net.Conn) error {
 					fmt.Fprint(w, "STARTING")
 				case StateStarted:
 					if v.Restarts > 0 {
-						fmt.Fprintf(w, "RUNNING since %s - %d restarts", v.Started, v.Restarts)
+						fmt.Fprintf(w, "RUNNING since %s - %d restarts", formatTime(v.Started), v.Restarts)
 					} else {
-						fmt.Fprintf(w, "RUNNING since %s", v.Started)
+						fmt.Fprintf(w, "RUNNING since %s", formatTime(v.Started))
 					}
 				case StateFailed:
 					fmt.Fprintf(w, "FAILED - %s", v.Err)
