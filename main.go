@@ -11,7 +11,7 @@ var (
 	daemon     = flag.Bool("D", false, "Run in daemon mode")
 	debug      = flag.Bool("d", false, "Enable debug logging")
 	testConfig = flag.Bool("t", false, "Test configuration files")
-	configDir  = flag.String("-c", "/etc/governator", "Configuration directory")
+	configDir  = flag.String("-c", fmt.Sprintf("/etc/%s", AppName), "Configuration directory")
 )
 
 func testConfigurations() {
@@ -45,7 +45,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error starting daemon: %s\n", err)
 		}
 	default:
-		if err := clientMain(); err != nil {
+		if err := clientMain(flag.Args()); err != nil {
 			fmt.Fprintf(os.Stderr, "error running client: %s\n", err)
 		}
 	}
