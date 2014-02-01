@@ -18,12 +18,6 @@ const help = `available commands are:
     exit              : close the shell
     help:             : show help`
 
-type oneArgError string
-
-func (o oneArgError) Error() string {
-	return fmt.Sprintf("%s requires exactly one argument", string(o))
-}
-
 func sendCommand(args []string) error {
 	conn, err := net.Dial("unix", SocketPath)
 	if err != nil {
