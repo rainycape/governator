@@ -45,7 +45,11 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 		}
 		fields[0] = p
 	}
-	cmd := &exec.Cmd{Path: fields[0], Args: fields, Dir: c.Dir}
+	dir := c.Dir
+	if dir == "" {
+		dir = filepath.Base(fields[0])
+	}
+	cmd := &exec.Cmd{Path: fields[0], Args: fields, Dir: dir}
 	for k, v := range c.Environment {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
