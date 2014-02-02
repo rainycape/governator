@@ -55,7 +55,7 @@ func (s *Service) initLogger() {
 	logPath := filepath.Join(LogDir, s.Name()+".log.gz")
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		log.Errorf("error opening log file %s: %s", logPath, err)
+		s.errorf("error opening log file %s: %s", logPath, err)
 		return
 	}
 	s.logger = newLogger(f)
@@ -76,7 +76,7 @@ func (s *Service) Start() error {
 		return err
 	}
 	if err := s.startWatchdog(); err != nil {
-		log.Errorf("error starting %s's watchdog: %s", s.Name(), err)
+		s.errorf("error starting watchdog: %s", s.Name(), err)
 	}
 	return nil
 }
@@ -88,7 +88,6 @@ func (s *Service) Run() {
 	s.Unlock()
 	for {
 		s.Lock()
-		name := s.Name()
 		if s.State != StateStarted {
 			s.Unlock()
 			break
@@ -97,7 +96,7 @@ func (s *Service) Run() {
 		if err != nil {
 			s.State = StateFailed
 			s.Err = err
-			log.Errorf("could not initialize %s: %s", name, err)
+			s.errorf("could not initialize: %s", err)
 			s.Unlock()
 			break
 		}
@@ -107,11 +106,11 @@ func (s *Service) Run() {
 		}
 		s.Cmd = cmd
 		s.Started = time.Now()
-		log.Infof("Starting %s", name)
+		s.infof("starting")
 		if err := s.Cmd.Start(); err != nil {
 			s.State = StateFailed
 			s.Err = err
-			log.Errorf("failed to start %s: %s", name, err)
+			s.errorf("failed to start: %s", err)
 			s.Unlock()
 			break
 		}
@@ -121,7 +120,7 @@ func (s *Service) Run() {
 			defer s.Unlock()
 			if s.Err == nil {
 				s.sendErr(nil)
-				log.Infof("Started %s", name)
+				s.infof("started")
 			}
 		})
 		err = s.Cmd.Wait()
@@ -139,12 +138,12 @@ func (s *Service) Run() {
 			s.Err = fmt.Errorf("exited too fast (%s)", since)
 			s.sendErr(s.Err)
 			s.Unlock()
-			log.Errorf("%s %s", name, s.Err)
+			s.errorf(s.Err.Error())
 			break
 		}
 		s.Restarts++
 		s.Unlock()
-		log.Infof("%s exited with error %s - restarting", name, err)
+		s.infof("exited with error %s - restarting", err)
 	}
 }
 
@@ -182,7 +181,6 @@ func (s *Service) startService() error {
 func (s *Service) stopService() error {
 	s.Lock()
 	s.State = StateStopping
-	name := s.Name()
 	cmd := s.Cmd
 	s.Unlock()
 	if cmd == nil {
@@ -191,7 +189,7 @@ func (s *Service) stopService() error {
 		s.Unlock()
 		return nil
 	}
-	log.Infof("Stopping %s", name)
+	s.infof("stopping")
 	if cmd.Process != nil {
 		cmd.Process.Signal(os.Signal(syscall.SIGTERM))
 	}
@@ -211,8 +209,8 @@ func (s *Service) stopService() error {
 			s.Lock()
 			s.State = StateStarted
 			s.Unlock()
-			err := fmt.Errorf("could not stop %s, probably stuck", name)
-			log.Error(err)
+			err := fmt.Errorf("could not stop, probably stuck")
+			s.errorf(err.Error())
 			return err
 		}
 	}
@@ -220,10 +218,30 @@ func (s *Service) stopService() error {
 	s.State = StateStopped
 	s.Restarts = 0
 	s.Unlock()
-	log.Infof("Stopped %s", name)
+	s.infof("stopped")
 	if s.logger != nil {
 		s.logger.Close()
 		s.logger = nil
 	}
 	return nil
+}
+
+func (s *Service) log(level log.LLevel, prefix string, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	log.Logf(level, "[%s] %s", s.Name(), msg)
+	if s.logger != nil {
+		s.logger.Write(prefix, []byte(msg))
+	}
+}
+
+func (s *Service) errorf(format string, args ...interface{}) {
+	s.log(log.LError, "error", format, args...)
+}
+
+func (s *Service) infof(format string, args ...interface{}) {
+	s.log(log.LInfo, "info", format, args...)
+}
+
+func (s *Service) debugf(format string, args ...interface{}) {
+	s.log(log.LDebug, "debug", format, args...)
 }
