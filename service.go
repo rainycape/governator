@@ -25,7 +25,7 @@ const (
 	minTime = time.Second
 )
 
-type Status struct {
+type Service struct {
 	sync.Mutex
 	Config   *Config
 	Cmd      *exec.Cmd
@@ -37,11 +37,11 @@ type Status struct {
 	logger   *logger
 }
 
-func newStatus(cfg *Config) *Status {
-	return &Status{Config: cfg, Ch: make(chan error)}
+func newService(cfg *Config) *Service {
+	return &Service{Config: cfg, Ch: make(chan error)}
 }
 
-func (s *Status) initLogger() {
+func (s *Service) initLogger() {
 	var m monitor
 	if s.logger != nil {
 		s.logger.Close()
@@ -58,7 +58,7 @@ func (s *Status) initLogger() {
 	s.logger.monitor = m
 }
 
-func (s *Status) sendErr(err error) bool {
+func (s *Service) sendErr(err error) bool {
 	select {
 	case s.Ch <- err:
 		return true
@@ -67,7 +67,7 @@ func (s *Status) sendErr(err error) bool {
 	return false
 }
 
-func (s *Status) Run() {
+func (s *Service) Run() {
 	s.Lock()
 	s.State = StateStarted
 	s.initLogger()
@@ -134,7 +134,7 @@ func (s *Status) Run() {
 	}
 }
 
-func (s *Status) Stop() error {
+func (s *Service) Stop() error {
 	s.Lock()
 	s.State = StateStopping
 	name := s.Config.ServiceName()

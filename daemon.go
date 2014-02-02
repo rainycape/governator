@@ -20,15 +20,15 @@ import (
 
 var services struct {
 	sync.Mutex
-	status []*Status
+	list []*Service
 }
 
-type statusByPriority []*Status
+type servicesByPriority []*Service
 
-func (s statusByPriority) Len() int           { return len(s) }
-func (s statusByPriority) Less(i, j int) bool { return s[i].Config.Priority < s[j].Config.Priority }
-func (s statusByPriority) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s statusByPriority) Sort()              { sort.Stable(s) }
+func (s servicesByPriority) Len() int           { return len(s) }
+func (s servicesByPriority) Less(i, j int) bool { return s[i].Config.Priority < s[j].Config.Priority }
+func (s servicesByPriority) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s servicesByPriority) Sort()              { sort.Stable(s) }
 
 func startWatching(ch chan bool) error {
 	watcher, err := fsnotify.NewWatcher()
@@ -49,24 +49,24 @@ func startWatching(ch chan bool) error {
 				case ev.IsCreate():
 					cfg := ParseConfig(name)
 					log.Debugf("added service %s", cfg.ServiceName())
-					s := newStatus(cfg)
-					services.status = append(services.status, s)
-					statusByPriority(services.status).Sort()
+					s := newService(cfg)
+					services.list = append(services.list, s)
+					servicesByPriority(services.list).Sort()
 					go s.Run()
 				case ev.IsDelete() || ev.IsRename():
-					for ii := range services.status {
-						s := services.status[ii]
+					for ii := range services.list {
+						s := services.list[ii]
 						if s.Config.File == name {
 							log.Debugf("removed service %s", s.Config.ServiceName())
 							if s.State == StateStarted {
 								s.Stop()
 							}
-							services.status = append(services.status[:ii], services.status[ii+1:]...)
+							services.list = append(services.list[:ii], services.list[ii+1:]...)
 							break
 						}
 					}
 				case ev.IsModify():
-					for _, v := range services.status {
+					for _, v := range services.list {
 						if v.Config.File == name {
 							cfg := ParseConfig(name)
 							if reflect.DeepEqual(v.Config, cfg) {
@@ -101,7 +101,7 @@ func startWatching(ch chan bool) error {
 	return nil
 }
 
-func startService(conn net.Conn, s *Status) error {
+func startService(conn net.Conn, s *Service) error {
 	name := s.Config.ServiceName()
 	encodeResponse(conn, respOk, fmt.Sprintf("starting %s\n", name))
 	go s.Run()
@@ -112,7 +112,7 @@ func startService(conn net.Conn, s *Status) error {
 	return encodeResponse(conn, respOk, fmt.Sprintf("started %s\n", name))
 }
 
-func stopService(conn net.Conn, s *Status) (bool, error) {
+func stopService(conn net.Conn, s *Service) (bool, error) {
 	name := s.Config.ServiceName()
 	encodeResponse(conn, respOk, fmt.Sprintf("stopping %s\n", name))
 	if serr := s.Stop(); serr != nil {
@@ -129,7 +129,7 @@ func serveConn(conn net.Conn) error {
 	}
 	if len(args) > 0 {
 		var err error
-		var st *Status
+		var st *Service
 		var name string
 		cmd := strings.ToLower(args[0])
 		if cmd == "start" || cmd == "stop" || cmd == "restart" || cmd == "log" {
@@ -139,7 +139,7 @@ func serveConn(conn net.Conn) error {
 			}
 			if cmd != "" {
 				services.Lock()
-				for _, v := range services.status {
+				for _, v := range services.list {
 					if sn := v.Config.ServiceName(); sn == args[1] {
 						st = v
 						name = sn
@@ -181,7 +181,7 @@ func serveConn(conn net.Conn) error {
 			w := tabwriter.NewWriter(&buf, 4, 4, 4, ' ', 0)
 			fmt.Fprint(w, "SERVICE\tSTATUS\t\n")
 			services.Lock()
-			for _, v := range services.status {
+			for _, v := range services.list {
 				fmt.Fprintf(w, "%s\t", v.Config.ServiceName())
 				switch v.State {
 				case StateStopped:
@@ -303,13 +303,13 @@ func daemonMain() error {
 		return err
 	}
 	services.Lock()
-	services.status = make([]*Status, len(configs))
+	services.list = make([]*Service, len(configs))
 	for ii, v := range configs {
-		s := newStatus(v)
-		services.status[ii] = s
+		s := newService(v)
+		services.list[ii] = s
 		go s.Run()
 	}
-	statusByPriority(services.status).Sort()
+	servicesByPriority(services.list).Sort()
 	services.Unlock()
 	quitWatcher := make(chan bool, 1)
 	if err := startWatching(quitWatcher); err != nil {
@@ -330,11 +330,11 @@ func daemonMain() error {
 	<-quitServer
 	services.Lock()
 	var wg sync.WaitGroup
-	wg.Add(len(services.status))
+	wg.Add(len(services.list))
 	// Stop in reverse order, to respect priorities
-	for ii := len(services.status) - 1; ii >= 0; ii-- {
-		v := services.status[ii]
-		go func(s *Status) {
+	for ii := len(services.list) - 1; ii >= 0; ii-- {
+		v := services.list[ii]
+		go func(s *Service) {
 			s.Stop()
 			wg.Done()
 		}(v)
