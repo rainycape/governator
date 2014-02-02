@@ -30,7 +30,27 @@ func (s servicesByPriority) Less(i, j int) bool { return s[i].Config.Priority < 
 func (s servicesByPriority) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s servicesByPriority) Sort()              { sort.Stable(s) }
 
-func startWatching(ch chan bool) error {
+type quit struct {
+	stop    chan bool
+	stopped chan bool
+}
+
+func newQuit() *quit {
+	return &quit{
+		stop:    make(chan bool, 1),
+		stopped: make(chan bool, 1),
+	}
+}
+
+func (q *quit) sendStop() {
+	q.stop <- true
+}
+
+func (q *quit) sendStopped() {
+	q.stopped <- true
+}
+
+func startWatching(q *quit) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -92,9 +112,9 @@ func startWatching(ch chan bool) error {
 				services.Unlock()
 			case err := <-watcher.Error:
 				log.Errorf("error watching: %s", err)
-			case _ = <-ch:
+			case <-q.stop:
 				watcher.Close()
-				ch <- true
+				q.sendStopped()
 				break End
 			}
 		}
@@ -251,7 +271,7 @@ func serveConn(conn net.Conn) error {
 	return encodeResponse(conn, respEnd, "")
 }
 
-func startServer(ch chan bool) error {
+func startServer(q *quit) error {
 	os.Remove(SocketPath)
 	server, err := net.Listen("unix", SocketPath)
 	if err != nil {
@@ -274,9 +294,9 @@ func startServer(ch chan bool) error {
 	go func() {
 		for {
 			select {
-			case <-ch:
+			case <-q.stop:
 				os.Remove(SocketPath)
-				ch <- true
+				q.sendStopped()
 				return
 			case conn := <-conns:
 				go func() {
@@ -313,11 +333,11 @@ func daemonMain() error {
 	}
 	servicesByPriority(services.list).Sort()
 	services.Unlock()
-	quitWatcher := make(chan bool, 1)
+	quitWatcher := newQuit()
 	if err := startWatching(quitWatcher); err != nil {
 		log.Errorf("error watching %s, configuration won't be automatically updated: %s", *configDir, err)
 	}
-	quitServer := make(chan bool, 1)
+	quitServer := newQuit()
 	if err := startServer(quitServer); err != nil {
 		log.Errorf("error starting server, can't receive remote commands: %s", err)
 	}
@@ -325,11 +345,11 @@ func daemonMain() error {
 	signal.Notify(c, os.Interrupt, os.Kill)
 	// Wait for signal
 	<-c
-	quitWatcher <- true
-	quitServer <- true
+	quitWatcher.sendStop()
+	quitServer.sendStop()
 	// Wait for goroutines to exit cleanly
-	<-quitWatcher
-	<-quitServer
+	<-quitWatcher.stopped
+	<-quitServer.stopped
 	services.Lock()
 	var wg sync.WaitGroup
 	wg.Add(len(services.list))
