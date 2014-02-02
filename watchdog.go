@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"gnd.la/log"
 	"gnd.la/util/textutil"
 	"net"
 	"net/http"
@@ -28,9 +27,20 @@ func (d *runDog) check() error {
 	return cmd.Run()
 }
 
+func (d *runDog) String() string {
+	return fmt.Sprintf("run: %s", d.argv)
+}
+
 type connectDog struct {
 	proto string
 	addr  string
+}
+
+func (d *connectDog) connectProto() string {
+	if d.proto == "" {
+		return "tcp"
+	}
+	return d.proto
 }
 
 func (d *connectDog) check() error {
@@ -38,7 +48,7 @@ func (d *connectDog) check() error {
 	if proto == "" {
 		proto = "tcp"
 	}
-	conn, err := net.Dial(proto, d.addr)
+	conn, err := net.Dial(d.connectProto(), d.addr)
 	if err != nil {
 		return err
 	}
@@ -46,12 +56,15 @@ func (d *connectDog) check() error {
 	return nil
 }
 
+func (d *connectDog) String() string {
+	return fmt.Sprintf("connect to: %s (%s)", d.addr, d.connectProto())
+}
+
 type getDog struct {
 	url string
 }
 
 func (d *getDog) check() error {
-	log.Debugf("watchdog checking URL %s", d.url)
 	req, err := http.NewRequest("GET", d.url, nil)
 	if err != nil {
 		return err
@@ -67,6 +80,10 @@ func (d *getDog) check() error {
 		return fmt.Errorf("non-200 error code %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func (d *getDog) String() string {
+	return fmt.Sprintf("GET: %s", d.url)
 }
 
 type Watchdog struct {
@@ -86,11 +103,14 @@ func (w *Watchdog) Start(s *Service, interval int) error {
 			w.ch <- true
 			return nil
 		case <-ticker.C:
+			s.infof("running watchdog %s", w.dog)
 			if err := w.Check(); err != nil {
-				log.Errorf("%s's watchdog returned an error: %s", s.Name(), err)
+				s.errorf("watchdog returned an error: %s", err)
 				if err := s.stopService(); err == nil {
 					s.startService()
 				}
+			} else {
+				s.infof("watchdog finished successfully")
 			}
 		}
 	}
