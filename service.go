@@ -52,7 +52,7 @@ func (s *Service) initLogger() {
 		m = s.logger.monitor
 		s.logger = nil
 	}
-	logPath := filepath.Join(LogDir, s.Config.ServiceName()+".log.gz")
+	logPath := filepath.Join(LogDir, s.Name()+".log.gz")
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Errorf("error opening log file %s: %s", logPath, err)
@@ -76,7 +76,7 @@ func (s *Service) Start() error {
 		return err
 	}
 	if err := s.startWatchdog(); err != nil {
-		log.Errorf("error starting %s's watchdog: %s", s.Config.ServiceName(), err)
+		log.Errorf("error starting %s's watchdog: %s", s.Name(), err)
 	}
 	return nil
 }
@@ -88,7 +88,7 @@ func (s *Service) Run() {
 	s.Unlock()
 	for {
 		s.Lock()
-		name := s.Config.ServiceName()
+		name := s.Name()
 		if s.State != StateStarted {
 			s.Unlock()
 			break
@@ -182,7 +182,7 @@ func (s *Service) startService() error {
 func (s *Service) stopService() error {
 	s.Lock()
 	s.State = StateStopping
-	name := s.Config.ServiceName()
+	name := s.Name()
 	cmd := s.Cmd
 	s.Unlock()
 	if cmd == nil {

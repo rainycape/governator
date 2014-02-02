@@ -57,7 +57,7 @@ func startWatching(ch chan bool) error {
 					for ii := range services.list {
 						s := services.list[ii]
 						if s.Config.File == name {
-							log.Debugf("removed service %s", s.Config.ServiceName())
+							log.Debugf("removed service %s", s.Name())
 							if s.State == StateStarted {
 								s.Stop()
 							}
@@ -73,7 +73,7 @@ func startWatching(ch chan bool) error {
 								// there were changes to the file which don't affect the conf
 								break
 							}
-							log.Debugf("changed service %s's configuration", v.Config.ServiceName())
+							log.Debugf("changed service %s's configuration", v.Name())
 							start := false
 							if v.State == StateStarted {
 								start = v.Stop() == nil
@@ -106,7 +106,7 @@ func startWatching(ch chan bool) error {
 }
 
 func startService(conn net.Conn, s *Service) error {
-	name := s.Config.ServiceName()
+	name := s.Name()
 	encodeResponse(conn, respOk, fmt.Sprintf("starting %s\n", name))
 	if serr := s.Start(); serr != nil {
 		return encodeResponse(conn, respErr, fmt.Sprintf("error starting %s: %s\n", name, serr))
@@ -115,7 +115,7 @@ func startService(conn net.Conn, s *Service) error {
 }
 
 func stopService(conn net.Conn, s *Service) (bool, error) {
-	name := s.Config.ServiceName()
+	name := s.Name()
 	encodeResponse(conn, respOk, fmt.Sprintf("stopping %s\n", name))
 	if serr := s.Stop(); serr != nil {
 		return false, encodeResponse(conn, respErr, fmt.Sprintf("error stopping %s: %s\n", name, serr))
@@ -142,7 +142,7 @@ func serveConn(conn net.Conn) error {
 			if cmd != "" {
 				services.Lock()
 				for _, v := range services.list {
-					if sn := v.Config.ServiceName(); sn == args[1] {
+					if sn := v.Name(); sn == args[1] {
 						st = v
 						name = sn
 						break
@@ -184,7 +184,7 @@ func serveConn(conn net.Conn) error {
 			fmt.Fprint(w, "SERVICE\tSTATUS\t\n")
 			services.Lock()
 			for _, v := range services.list {
-				fmt.Fprintf(w, "%s\t", v.Config.ServiceName())
+				fmt.Fprintf(w, "%s\t", v.Name())
 				switch v.State {
 				case StateStopped:
 					fmt.Fprint(w, "STOPPED")
