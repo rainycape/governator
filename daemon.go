@@ -52,7 +52,7 @@ func startWatching(ch chan bool) error {
 					s := newService(cfg)
 					services.list = append(services.list, s)
 					servicesByPriority(services.list).Sort()
-					go s.Run()
+					s.Start()
 				case ev.IsDelete() || ev.IsRename():
 					for ii := range services.list {
 						s := services.list[ii]
@@ -74,11 +74,15 @@ func startWatching(ch chan bool) error {
 								break
 							}
 							log.Debugf("changed service %s's configuration", v.Config.ServiceName())
+							start := false
 							if v.State == StateStarted {
-								v.Stop()
+								start = v.Stop() == nil
 							}
 							v.Config = cfg
-							go v.Run()
+							servicesByPriority(services.list).Sort()
+							if start {
+								v.Start()
+							}
 							break
 						}
 					}
@@ -104,9 +108,7 @@ func startWatching(ch chan bool) error {
 func startService(conn net.Conn, s *Service) error {
 	name := s.Config.ServiceName()
 	encodeResponse(conn, respOk, fmt.Sprintf("starting %s\n", name))
-	go s.Run()
-	serr := <-s.Ch
-	if serr != nil {
+	if serr := s.Start(); serr != nil {
 		return encodeResponse(conn, respErr, fmt.Sprintf("error starting %s: %s\n", name, serr))
 	}
 	return encodeResponse(conn, respOk, fmt.Sprintf("started %s\n", name))
@@ -307,7 +309,7 @@ func daemonMain() error {
 	for ii, v := range configs {
 		s := newService(v)
 		services.list[ii] = s
-		go s.Run()
+		s.Start()
 	}
 	servicesByPriority(services.list).Sort()
 	services.Unlock()

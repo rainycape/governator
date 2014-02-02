@@ -41,6 +41,10 @@ func newService(cfg *Config) *Service {
 	return &Service{Config: cfg, Ch: make(chan error)}
 }
 
+func (s *Service) Name() string {
+	return s.Config.ServiceName()
+}
+
 func (s *Service) initLogger() {
 	var m monitor
 	if s.logger != nil {
@@ -65,6 +69,16 @@ func (s *Service) sendErr(err error) bool {
 	default:
 	}
 	return false
+}
+
+func (s *Service) Start() error {
+	if err := s.startService(); err != nil {
+		return err
+	}
+	if err := s.startWatchdog(); err != nil {
+		log.Errorf("error starting %s's watchdog: %s", s.Config.ServiceName(), err)
+	}
+	return nil
 }
 
 func (s *Service) Run() {
@@ -135,6 +149,37 @@ func (s *Service) Run() {
 }
 
 func (s *Service) Stop() error {
+	s.stopWatchdog()
+	if err := s.stopService(); err != nil {
+		s.startWatchdog()
+		return err
+	}
+	return nil
+}
+
+func (s *Service) startWatchdog() error {
+	if s.Config.Watchdog != nil {
+		interval := s.Config.WatchdogInterval
+		if interval < 0 {
+			interval = defaultWatchdogInterval
+		}
+		return s.Config.Watchdog.Start(s, interval)
+	}
+	return nil
+}
+
+func (s *Service) stopWatchdog() {
+	if s.Config.Watchdog != nil {
+		s.Config.Watchdog.Stop()
+	}
+}
+
+func (s *Service) startService() error {
+	go s.Run()
+	return <-s.Ch
+}
+
+func (s *Service) stopService() error {
 	s.Lock()
 	s.State = StateStopping
 	name := s.Config.ServiceName()

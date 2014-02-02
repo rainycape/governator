@@ -17,15 +17,17 @@ import (
 )
 
 type Config struct {
-	File        string
-	Command     string
-	Name        string
-	Dir         string
-	Environment map[string]string
-	User        string
-	Group       string
-	Priority    int `default:"1000"`
-	Err         error
+	File             string
+	Command          string
+	Name             string
+	Dir              string
+	Environment      map[string]string
+	User             string
+	Group            string
+	Priority         int `default:"1000"`
+	Watchdog         *Watchdog
+	WatchdogInterval int `default:"300"`
+	Err              error
 }
 
 func (c *Config) Cmd() (*exec.Cmd, error) {
