@@ -89,31 +89,36 @@ func (d *getDog) String() string {
 type Watchdog struct {
 	service *Service
 	dog     dog
-	ch      chan bool
+	stop    chan bool
+	stopped chan bool
 }
 
 func (w *Watchdog) Start(s *Service, interval int) error {
 	w.service = s
-	w.ch = make(chan bool, 1)
+	w.stop = make(chan bool, 1)
+	w.stopped = make(chan bool, 1)
 	ticker := time.NewTicker(time.Second * time.Duration(interval))
-	for {
-		select {
-		case <-w.ch:
-			ticker.Stop()
-			w.ch <- true
-			return nil
-		case <-ticker.C:
-			s.infof("running watchdog %s", w.dog)
-			if err := w.Check(); err != nil {
-				s.errorf("watchdog returned an error: %s", err)
-				if err := s.stopService(); err == nil {
-					s.startService()
+	go func() {
+		for {
+		stopWatchdog:
+			select {
+			case <-w.stop:
+				ticker.Stop()
+				w.stopped <- true
+				break stopWatchdog
+			case <-ticker.C:
+				s.infof("running watchdog %s", w.dog)
+				if err := w.Check(); err != nil {
+					s.errorf("watchdog returned an error: %s", err)
+					if err := s.stopService(); err == nil {
+						s.startService()
+					}
+				} else {
+					s.infof("watchdog finished successfully")
 				}
-			} else {
-				s.infof("watchdog finished successfully")
 			}
 		}
-	}
+	}()
 	return nil
 }
 
@@ -122,10 +127,11 @@ func (w *Watchdog) Check() error {
 }
 
 func (w *Watchdog) Stop() {
-	if w.ch != nil {
-		w.ch <- true
-		<-w.ch
-		w.ch = nil
+	if w.stop != nil {
+		w.stop <- true
+		<-w.stopped
+		w.stop = nil
+		w.stopped = nil
 	}
 }
 
