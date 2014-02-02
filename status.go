@@ -42,8 +42,10 @@ func newStatus(cfg *Config) *Status {
 }
 
 func (s *Status) initLogger() {
+	var m monitor
 	if s.logger != nil {
 		s.logger.Close()
+		m = s.logger.monitor
 		s.logger = nil
 	}
 	logPath := filepath.Join(LogDir, s.Config.ServiceName()+".log.gz")
@@ -53,6 +55,7 @@ func (s *Status) initLogger() {
 		return
 	}
 	s.logger = newLogger(f)
+	s.logger.monitor = m
 }
 
 func (s *Status) sendErr(err error) bool {

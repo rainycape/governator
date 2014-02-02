@@ -41,11 +41,14 @@ func (s *sink) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+type monitor func(string, []byte)
+
 type logger struct {
-	w      io.WriteCloser
-	zw     *gzip.Writer
-	stdout *sink
-	stderr *sink
+	w       io.WriteCloser
+	zw      *gzip.Writer
+	stdout  *sink
+	stderr  *sink
+	monitor monitor
 }
 
 func (l *logger) Write(prefix string, b []byte) {
@@ -54,11 +57,32 @@ func (l *logger) Write(prefix string, b []byte) {
 	if b[len(b)-1] != '\n' {
 		l.zw.Write(newLine)
 	}
-	l.zw.Flush()
+	l.Flush()
+	if l.monitor != nil {
+		l.monitor(prefix, b)
+	}
 }
 
 func (l *logger) WriteString(prefix string, s string) {
 	l.Write(prefix, []byte(s))
+}
+
+type syncer interface {
+	Sync() error
+}
+
+type flusher interface {
+	Flush() error
+}
+
+func (l *logger) Flush() {
+	l.zw.Flush()
+	if s, ok := l.w.(syncer); ok {
+		s.Sync()
+	}
+	if f, ok := l.w.(flusher); ok {
+		f.Flush()
+	}
 }
 
 func (l *logger) Close() error {

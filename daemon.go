@@ -103,22 +103,22 @@ func startWatching(ch chan bool) error {
 
 func startService(conn net.Conn, s *Status) error {
 	name := s.Config.ServiceName()
-	encodeResponse(conn, respOk, fmt.Sprintf("starting %s", name))
+	encodeResponse(conn, respOk, fmt.Sprintf("starting %s\n", name))
 	go s.Run()
 	serr := <-s.Ch
 	if serr != nil {
-		return encodeResponse(conn, respErr, fmt.Sprintf("error starting %s: %s", name, serr))
+		return encodeResponse(conn, respErr, fmt.Sprintf("error starting %s: %s\n", name, serr))
 	}
-	return encodeResponse(conn, respOk, fmt.Sprintf("started %s", name))
+	return encodeResponse(conn, respOk, fmt.Sprintf("started %s\n", name))
 }
 
 func stopService(conn net.Conn, s *Status) (bool, error) {
 	name := s.Config.ServiceName()
-	encodeResponse(conn, respOk, fmt.Sprintf("stopping %s", name))
+	encodeResponse(conn, respOk, fmt.Sprintf("stopping %s\n", name))
 	if serr := s.Stop(); serr != nil {
-		return false, encodeResponse(conn, respErr, fmt.Sprintf("error stopping %s: %s", name, serr))
+		return false, encodeResponse(conn, respErr, fmt.Sprintf("error stopping %s: %s\n", name, serr))
 	}
-	return true, encodeResponse(conn, respOk, fmt.Sprintf("stopped %s", name))
+	return true, encodeResponse(conn, respOk, fmt.Sprintf("stopped %s\n", name))
 }
 
 func serveConn(conn net.Conn) error {
@@ -132,9 +132,9 @@ func serveConn(conn net.Conn) error {
 		var st *Status
 		var name string
 		cmd := strings.ToLower(args[0])
-		if cmd == "start" || cmd == "stop" || cmd == "restart" {
+		if cmd == "start" || cmd == "stop" || cmd == "restart" || cmd == "log" {
 			if len(args) != 2 {
-				err = encodeResponse(conn, respErr, fmt.Sprintf("command %s requires exactly one argument", cmd))
+				err = encodeResponse(conn, respErr, fmt.Sprintf("command %s requires exactly one argument\n", cmd))
 				cmd = ""
 			}
 			if cmd != "" {
@@ -148,7 +148,7 @@ func serveConn(conn net.Conn) error {
 				}
 				services.Unlock()
 				if st == nil {
-					err = encodeResponse(conn, respErr, fmt.Sprintf("no service named %s", args[1]))
+					err = encodeResponse(conn, respErr, fmt.Sprintf("no service named %s\n", args[1]))
 					cmd = ""
 				}
 			}
@@ -158,13 +158,13 @@ func serveConn(conn net.Conn) error {
 			// cmd already handled
 		case "start":
 			if st.State == StateStarted {
-				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is already running", name))
+				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is already running\n", name))
 			} else {
 				err = startService(conn, st)
 			}
 		case "stop":
 			if st.State != StateStarted {
-				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is not running", name))
+				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is not running\n", name))
 			} else {
 				_, err = stopService(conn, st)
 			}
@@ -205,9 +205,42 @@ func serveConn(conn net.Conn) error {
 			}
 			services.Unlock()
 			w.Flush()
+			buf.WriteString("\n")
 			err = encodeResponse(conn, respOk, buf.String())
+		case "log":
+			if st.State != StateStarted {
+				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is not running\n", name))
+				break
+			}
+			if st.logger.monitor != nil {
+				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is already being monitored\n", name))
+				break
+			}
+			ch := make(chan bool, 1)
+			st.logger.monitor = func(prefix string, b []byte) {
+				var buf bytes.Buffer
+				buf.WriteByte('[')
+				buf.WriteString(prefix)
+				buf.WriteString("] ")
+				buf.Write(b)
+				if b[len(b)-1] != '\n' {
+					buf.Write(newLine)
+				}
+				encodeResponse(conn, respOk, buf.String())
+			}
+			go func() {
+				// log stops when the client sends something over the connection
+				// or the connection is closed
+				b := make([]byte, 1)
+				conn.Read(b)
+				conn.Close()
+				ch <- true
+			}()
+			<-ch
+			st.logger.monitor = nil
+			return nil
 		default:
-			err = encodeResponse(conn, respErr, fmt.Sprintf("unknown command %s - %s", cmd, help))
+			err = encodeResponse(conn, respErr, fmt.Sprintf("unknown command %s - %s\n", cmd, help))
 			if err != nil {
 				return err
 			}

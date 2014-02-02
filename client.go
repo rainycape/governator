@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
 )
 
@@ -27,18 +28,30 @@ func sendCommand(args []string) error {
 	if err := encodeArgs(conn, args); err != nil {
 		return err
 	}
+	closed := false
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt)
+	defer signal.Stop(ch)
+	go func() {
+		<-ch
+		closed = true
+		conn.Close()
+	}()
 	for {
 		r, s, err := decodeResponse(conn)
 		if err != nil {
+			if closed {
+				return nil
+			}
 			return err
 		}
 		switch r {
 		case respEnd:
 			return nil
 		case respOk:
-			fmt.Println(s)
+			fmt.Print(s)
 		case respErr:
-			fmt.Fprintln(os.Stderr, s)
+			fmt.Fprint(os.Stderr, s)
 		default:
 			return fmt.Errorf("invalid response type %d", r)
 		}
