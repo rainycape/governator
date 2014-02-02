@@ -17,7 +17,7 @@ const help = `available commands are:
     restart <service> : restart
     list              : list registered services
     exit              : close the shell
-    help:             : show help`
+    help              : show help`
 
 func sendCommand(args []string) error {
 	conn, err := net.Dial("unix", SocketPath)
