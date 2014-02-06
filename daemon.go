@@ -50,6 +50,26 @@ func (q *quit) sendStopped() {
 	q.stopped <- true
 }
 
+func ensureUniqueName(cfg *Config) {
+	ii := 1
+	orig := cfg.ServiceName()
+	for {
+		name := cfg.ServiceName()
+		unique := true
+		for _, v := range services.list {
+			if name == v.Name() {
+				unique = false
+				cfg.Name = fmt.Sprintf("%s-%d", orig, ii)
+				ii++
+				break
+			}
+		}
+		if unique {
+			break
+		}
+	}
+}
+
 func startWatching(q *quit) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -68,6 +88,7 @@ func startWatching(q *quit) error {
 				switch {
 				case ev.IsCreate():
 					cfg := ParseConfig(name)
+					ensureUniqueName(cfg)
 					log.Debugf("added service %s", cfg.ServiceName())
 					s := newService(cfg)
 					services.list = append(services.list, s)
@@ -327,6 +348,7 @@ func daemonMain() error {
 	services.Lock()
 	services.list = make([]*Service, len(configs))
 	for ii, v := range configs {
+		ensureUniqueName(v)
 		s := newService(v)
 		services.list[ii] = s
 		s.Start()
