@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"time"
@@ -45,17 +44,16 @@ type monitor func(string, []byte)
 
 type logger struct {
 	w       io.WriteCloser
-	zw      *gzip.Writer
 	stdout  *sink
 	stderr  *sink
 	monitor monitor
 }
 
 func (l *logger) Write(prefix string, b []byte) {
-	fmt.Fprintf(l.zw, "[%s] %s - ", prefix, formatTime(time.Now()))
-	l.zw.Write(b)
+	fmt.Fprintf(l.w, "[%s] %s - ", prefix, formatTime(time.Now()))
+	l.w.Write(b)
 	if b[len(b)-1] != '\n' {
-		l.zw.Write(newLine)
+		l.w.Write(newLine)
 	}
 	l.Flush()
 	if l.monitor != nil {
@@ -76,7 +74,6 @@ type flusher interface {
 }
 
 func (l *logger) Flush() {
-	l.zw.Flush()
 	if s, ok := l.w.(syncer); ok {
 		s.Sync()
 	}
@@ -86,13 +83,11 @@ func (l *logger) Flush() {
 }
 
 func (l *logger) Close() error {
-	l.zw.Close()
 	return l.w.Close()
 }
 
 func newLogger(w io.WriteCloser) *logger {
 	log := &logger{w: w}
-	log.zw = gzip.NewWriter(w)
 	log.stdout = &sink{logger: log, prefix: "stdout"}
 	log.stderr = &sink{logger: log, prefix: "stderr"}
 	return log
