@@ -346,11 +346,11 @@ func daemonMain() error {
 		return err
 	}
 	services.Lock()
-	services.list = make([]*Service, len(configs))
-	for ii, v := range configs {
+	services.list = make([]*Service, 0, len(configs))
+	for _, v := range configs {
 		ensureUniqueName(v)
 		s := newService(v)
-		services.list[ii] = s
+		services.list = append(services.list, s)
 		s.Start()
 	}
 	servicesByPriority(services.list).Sort()
