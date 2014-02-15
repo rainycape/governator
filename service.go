@@ -63,13 +63,8 @@ func (s *Service) initLogger() {
 	s.logger.monitor = m
 }
 
-func (s *Service) sendErr(err error) bool {
-	select {
-	case s.Ch <- err:
-		return true
-	default:
-	}
-	return false
+func (s *Service) sendErr(err error) {
+	s.Ch <- err
 }
 
 func (s *Service) Start() error {
