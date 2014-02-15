@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"syscall"
 	"time"
@@ -244,4 +245,20 @@ func (s *Service) infof(format string, args ...interface{}) {
 
 func (s *Service) debugf(format string, args ...interface{}) {
 	s.log(log.LDebug, "debug", format, args...)
+}
+
+func (s *Service) updateConfig(cfg *Config) {
+	if reflect.DeepEqual(s.Config, cfg) {
+		// there were changes to the file which don't affect the conf
+		return
+	}
+	log.Debugf("changed service %s's configuration", s.Name())
+	start := false
+	if s.State == StateStarted {
+		start = s.Stop() == nil
+	}
+	s.Config = cfg
+	if start {
+		s.Start()
+	}
 }

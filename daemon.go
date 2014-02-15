@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -70,6 +69,15 @@ func ensureUniqueName(cfg *Config) {
 	}
 }
 
+func serviceByFilename(name string) (int, *Service) {
+	for ii, v := range services.list {
+		if v.Config.File == name {
+			return ii, v
+		}
+	}
+	return -1, nil
+}
+
 func startWatching(q *quit) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -81,6 +89,7 @@ func startWatching(q *quit) error {
 			select {
 			case ev := <-watcher.Event:
 				name := filepath.Base(ev.Name)
+				fmt.Println(name, ev)
 				if shouldIgnoreFile(name) {
 					break
 				}
@@ -88,44 +97,34 @@ func startWatching(q *quit) error {
 				switch {
 				case ev.IsCreate():
 					cfg := ParseConfig(name)
-					ensureUniqueName(cfg)
-					log.Debugf("added service %s", cfg.ServiceName())
-					s := newService(cfg)
-					services.list = append(services.list, s)
-					servicesByPriority(services.list).Sort()
-					s.Start()
+					// If a file is moved or copied over an already existing
+					// service configuration, we only receive a CREATE. Check
+					// if we already have a configuration with that name and, in
+					// that case, stop it, update its config and restart.
+					if _, s := serviceByFilename(name); s != nil {
+						s.updateConfig(cfg)
+						servicesByPriority(services.list).Sort()
+					} else {
+						ensureUniqueName(cfg)
+						log.Debugf("added service %s", cfg.ServiceName())
+						s := newService(cfg)
+						services.list = append(services.list, s)
+						servicesByPriority(services.list).Sort()
+						s.Start()
+					}
 				case ev.IsDelete() || ev.IsRename():
-					for ii := range services.list {
-						s := services.list[ii]
-						if s.Config.File == name {
-							log.Debugf("removed service %s", s.Name())
-							if s.State == StateStarted {
-								s.Stop()
-							}
-							services.list = append(services.list[:ii], services.list[ii+1:]...)
-							break
+					if ii, s := serviceByFilename(name); s != nil {
+						log.Debugf("removed service %s", s.Name())
+						if s.State == StateStarted {
+							s.Stop()
 						}
+						services.list = append(services.list[:ii], services.list[ii+1:]...)
 					}
 				case ev.IsModify():
-					for _, v := range services.list {
-						if v.Config.File == name {
-							cfg := ParseConfig(name)
-							if reflect.DeepEqual(v.Config, cfg) {
-								// there were changes to the file which don't affect the conf
-								break
-							}
-							log.Debugf("changed service %s's configuration", v.Name())
-							start := false
-							if v.State == StateStarted {
-								start = v.Stop() == nil
-							}
-							v.Config = cfg
-							servicesByPriority(services.list).Sort()
-							if start {
-								v.Start()
-							}
-							break
-						}
+					if _, s := serviceByFilename(name); s != nil {
+						cfg := ParseConfig(name)
+						s.updateConfig(cfg)
+						servicesByPriority(services.list).Sort()
 					}
 				default:
 					log.Errorf("unhandled event: %s\n", ev)
