@@ -63,8 +63,11 @@ func (s *Service) initLogger() {
 	s.logger.monitor = m
 }
 
-func (s *Service) sendErr(err error) {
-	s.Ch <- err
+func (s *Service) mightSendErr(err error) {
+	select {
+	case s.Ch <- err:
+	default:
+	}
 }
 
 func (s *Service) Start() error {
@@ -115,7 +118,7 @@ func (s *Service) Run() {
 			s.Lock()
 			defer s.Unlock()
 			if s.Err == nil {
-				s.sendErr(nil)
+				s.mightSendErr(nil)
 				s.infof("started")
 			}
 		})
@@ -123,7 +126,7 @@ func (s *Service) Run() {
 		s.Lock()
 		if s.State != StateStarted {
 			s.Cmd = nil
-			s.sendErr(nil)
+			s.Ch <- err
 			s.Unlock()
 			break
 		}
@@ -132,7 +135,7 @@ func (s *Service) Run() {
 			s.Cmd = nil
 			s.State = StateFailed
 			s.Err = fmt.Errorf("exited too fast (%s)", since)
-			s.sendErr(s.Err)
+			s.mightSendErr(s.Err)
 			s.Unlock()
 			s.errorf(s.Err.Error())
 			break
