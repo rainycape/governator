@@ -45,8 +45,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error starting daemon: %s\n", err)
 		}
 	default:
-		if err := clientMain(flag.Args()); err != nil {
+		ok, err := clientMain(flag.Args())
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "error running client: %s\n", err)
+			os.Exit(1)
+		}
+		if !ok {
+			os.Exit(1)
 		}
 	}
 }

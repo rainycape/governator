@@ -200,13 +200,13 @@ func serveConn(conn net.Conn) error {
 			// cmd already handled
 		case "start":
 			if st.State == StateStarted {
-				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is already running\n", name))
+				err = encodeResponse(conn, respOk, fmt.Sprintf("%s is already running\n", name))
 			} else {
 				err = startService(conn, st)
 			}
 		case "stop":
 			if st.State != StateStarted {
-				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is not running\n", name))
+				err = encodeResponse(conn, respOk, fmt.Sprintf("%s is not running\n", name))
 			} else {
 				_, err = stopService(conn, st)
 			}

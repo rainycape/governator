@@ -19,14 +19,14 @@ const help = `available commands are:
     exit              : close the shell
     help              : show help`
 
-func sendCommand(args []string) error {
+func sendCommand(args []string) (bool, error) {
 	conn, err := net.Dial("unix", SocketPath)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer conn.Close()
 	if err := encodeArgs(conn, args); err != nil {
-		return err
+		return false, err
 	}
 	closed := false
 	ch := make(chan os.Signal, 1)
@@ -37,42 +37,44 @@ func sendCommand(args []string) error {
 		closed = true
 		conn.Close()
 	}()
+	ok := true
 	for {
 		r, s, err := decodeResponse(conn)
 		if err != nil {
 			if closed {
-				return nil
+				return ok, nil
 			}
-			return err
+			return ok, err
 		}
 		switch r {
 		case respEnd:
-			return nil
+			return ok, nil
 		case respOk:
 			fmt.Print(s)
 		case respErr:
+			ok = false
 			fmt.Fprint(os.Stderr, s)
 		default:
-			return fmt.Errorf("invalid response type %d", r)
+			return false, fmt.Errorf("invalid response type %d", r)
 		}
 	}
-	return nil
+	return ok, nil
 }
 
-func evalCommand(args []string) error {
+func evalCommand(args []string) (bool, error) {
 	if len(args) > 0 {
 		switch strings.ToLower(args[0]) {
 		case "quit", "exit":
 			os.Exit(0)
 		case "help":
 			fmt.Fprintf(os.Stderr, "%s\n", help)
-			return nil
+			return true, nil
 		}
 	}
 	return sendCommand(args)
 }
 
-func clientMain(args []string) error {
+func clientMain(args []string) (bool, error) {
 	if len(args) > 0 {
 		return evalCommand(args)
 	}
@@ -93,10 +95,10 @@ func clientMain(args []string) error {
 				fmt.Fprintf(os.Stderr, "error reading input: %s\n", err)
 				continue
 			}
-			if err := evalCommand(fields); err != nil {
+			if _, err := evalCommand(fields); err != nil {
 				fmt.Fprintf(os.Stderr, "error executing command: %s\n", err)
 			}
 		}
 	}
-	return nil
+	return true, nil
 }
