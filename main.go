@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"gnd.la/log"
+	"net"
 	"os"
+	"syscall"
 )
 
 var (
@@ -47,6 +49,16 @@ func main() {
 	default:
 		ok, err := clientMain(flag.Args())
 		if err != nil {
+			if oe, ok := err.(*net.OpError); ok {
+				switch {
+				case oe.Err == syscall.EACCES:
+					fmt.Fprintf(os.Stderr, "can't connect to governator, permission denied")
+					os.Exit(1)
+				case oe.Err == syscall.ENOENT:
+					fmt.Fprintf(os.Stderr, "governator daemon is not running")
+					os.Exit(1)
+				}
+			}
 			fmt.Fprintf(os.Stderr, "error running client: %s\n", err)
 			os.Exit(1)
 		}
