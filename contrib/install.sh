@@ -23,6 +23,7 @@ fi
 
 $GET $HOST/get/releases/`uname -s|tr \[A-Z\] \[a-z\]`/`uname -m`/latest/governator -O $OUT
 chmod +x $OUT
+mkdir -p /etc/governator/services
 
 case `init_system` in
     "upstart")
