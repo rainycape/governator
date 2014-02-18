@@ -13,7 +13,7 @@ var (
 	daemon     = flag.Bool("D", false, "Run in daemon mode")
 	debug      = flag.Bool("d", false, "Enable debug logging")
 	testConfig = flag.Bool("t", false, "Test configuration files")
-	configDir  = flag.String("-c", fmt.Sprintf("/etc/%s", AppName), "Configuration directory")
+	configDir  = flag.String("c", fmt.Sprintf("/etc/%s", AppName), "Configuration directory")
 )
 
 func testConfigurations() {
