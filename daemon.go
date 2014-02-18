@@ -139,7 +139,7 @@ func startWatching(q *quit) error {
 			}
 		}
 	}()
-	if err := watcher.Watch(*configDir); err != nil {
+	if err := watcher.Watch(servicesDir()); err != nil {
 		return err
 	}
 	return nil
@@ -356,7 +356,7 @@ func daemonMain() error {
 	services.Unlock()
 	quitWatcher := newQuit()
 	if err := startWatching(quitWatcher); err != nil {
-		log.Errorf("error watching %s, configuration won't be automatically updated: %s", *configDir, err)
+		log.Errorf("error watching %s, configuration won't be automatically updated: %s", servicesDir(), err)
 	}
 	quitServer := newQuit()
 	if err := startServer(quitServer); err != nil {

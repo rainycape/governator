@@ -6,6 +6,7 @@ import (
 	"gnd.la/log"
 	"net"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -34,6 +35,10 @@ func testConfigurations() {
 	if ok {
 		fmt.Println("configurations OK")
 	}
+}
+
+func servicesDir() string {
+	return filepath.Join(*configDir, "services")
 }
 
 func main() {

@@ -110,15 +110,19 @@ func (c *Config) ServiceName() string {
 
 func ParseConfig(filename string) *Config {
 	cfg := &Config{File: filename}
-	err := config.ParseFile(filepath.Join(*configDir, filename), cfg)
+	err := config.ParseFile(filepath.Join(servicesDir(), filename), cfg)
 	cfg.Err = err
 	return cfg
 }
 
 func ParseConfigs() ([]*Config, error) {
-	files, err := ioutil.ReadDir(*configDir)
+	dir := servicesDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("error creating services directory %s: %s", dir, err)
+	}
+	files, err := ioutil.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("error reading config directory %s: %s", *configDir, err)
+		return nil, fmt.Errorf("error reading config directory %s: %s", dir, err)
 	}
 	var configs []*Config
 	for _, v := range files {
@@ -137,7 +141,7 @@ func shouldIgnoreFile(name string) bool {
 	if name == "" || name[0] == '.' || strings.HasSuffix(name, "~") {
 		return true
 	}
-	info, err := os.Stat(filepath.Join(*configDir, name))
+	info, err := os.Stat(filepath.Join(servicesDir(), name))
 	if err != nil || info.Size() == 0 || info.IsDir() {
 		return true
 	}
