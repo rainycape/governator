@@ -117,8 +117,10 @@ func ParseConfig(filename string) *Config {
 
 func ParseConfigs() ([]*Config, error) {
 	dir := servicesDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("error creating services directory %s: %s", dir, err)
+	if configDirIsDefault() {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("error creating services directory %s: %s", dir, err)
+		}
 	}
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {

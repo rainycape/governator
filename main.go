@@ -14,7 +14,8 @@ var (
 	daemon            = flag.Bool("D", false, "Run in daemon mode")
 	debug             = flag.Bool("d", false, "Enable debug logging")
 	testConfig        = flag.Bool("t", false, "Test configuration files")
-	configDir         = flag.String("c", fmt.Sprintf("/etc/%s", AppName), "Configuration directory")
+	defaultConfigDir  = fmt.Sprintf("/etc/%s", AppName)
+	configDir         = flag.String("c", defaultConfigDir, "Configuration directory")
 	printVersion      = flag.Bool("V", false, "Print version and exit")
 	governatorVersion = "<unknown>"
 )
@@ -39,6 +40,10 @@ func testConfigurations() {
 
 func servicesDir() string {
 	return filepath.Join(*configDir, "services")
+}
+
+func configDirIsDefault() bool {
+	return *configDir == defaultConfigDir
 }
 
 func main() {
