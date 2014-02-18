@@ -10,10 +10,12 @@ import (
 )
 
 var (
-	daemon     = flag.Bool("D", false, "Run in daemon mode")
-	debug      = flag.Bool("d", false, "Enable debug logging")
-	testConfig = flag.Bool("t", false, "Test configuration files")
-	configDir  = flag.String("c", fmt.Sprintf("/etc/%s", AppName), "Configuration directory")
+	daemon            = flag.Bool("D", false, "Run in daemon mode")
+	debug             = flag.Bool("d", false, "Enable debug logging")
+	testConfig        = flag.Bool("t", false, "Test configuration files")
+	configDir         = flag.String("c", fmt.Sprintf("/etc/%s", AppName), "Configuration directory")
+	printVersion      = flag.Bool("V", false, "Print version and exit")
+	governatorVersion = "<unknown>"
 )
 
 func testConfigurations() {
@@ -40,6 +42,8 @@ func main() {
 		log.SetLevel(log.LDebug)
 	}
 	switch {
+	case *printVersion:
+		fmt.Println(governatorVersion)
 	case *testConfig:
 		testConfigurations()
 	case *daemon:
