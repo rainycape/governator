@@ -281,6 +281,33 @@ func serveConn(conn net.Conn) error {
 			<-ch
 			st.logger.monitor = nil
 			return nil
+		case "conf":
+			if len(args) != 2 {
+				err = encodeResponse(conn, respErr, fmt.Sprintf("conf requires one argument, %d given", len(args)-1))
+				break
+			}
+			var value string
+			switch strings.ToLower(args[1]) {
+			case "config-dir":
+				value = *configDir
+			case "services-dir":
+				value = servicesDir()
+			}
+			if !filepath.IsAbs(value) {
+				p, err := filepath.Abs(value)
+				if err != nil {
+					return err
+				}
+				value = p
+			}
+			r := respOk
+			if value == "" {
+				r = respErr
+				value = fmt.Sprintf("unknown configuration parameter %q", args[1])
+			} else {
+				value += "\n"
+			}
+			err = encodeResponse(conn, r, value)
 		default:
 			err = encodeResponse(conn, respErr, fmt.Sprintf("unknown command %s - %s\n", cmd, help))
 			if err != nil {
