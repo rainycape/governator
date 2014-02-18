@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"time"
 )
 
@@ -60,8 +61,21 @@ func (d *connectDog) String() string {
 	return fmt.Sprintf("connect to: %s (%s)", d.addr, d.connectProto())
 }
 
+func dialTimeout(timeout int) func(string, string) (net.Conn, error) {
+	to := time.Second * time.Duration(timeout)
+	return func(network, addr string) (net.Conn, error) {
+		conn, err := net.DialTimeout(network, addr, to)
+		if err != nil {
+			return nil, err
+		}
+		conn.SetDeadline(time.Now().Add(to))
+		return conn, nil
+	}
+}
+
 type getDog struct {
-	url string
+	url     string
+	timeout int
 }
 
 func (d *getDog) check() error {
@@ -71,6 +85,11 @@ func (d *getDog) check() error {
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s watchdog", AppName))
 	client := &http.Client{}
+	if d.timeout != 0 {
+		client.Transport = &http.Transport{
+			Dial: dialTimeout(d.timeout),
+		}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -168,9 +187,10 @@ func (w *Watchdog) Parse(input string) error {
 			}
 			w.dog = &connectDog{proto, addr}
 		case "get":
-			if len(args) != 2 {
-				return fmt.Errorf("exactly watchdog requires exactly one argument")
+			if len(args) != 2 && len(args) != 3 {
+				return fmt.Errorf("get watchdog requires two or three arguments, %d given", len(args))
 			}
+			var timeout int
 			u, err := url.Parse(args[1])
 			if err != nil {
 				return fmt.Errorf("invalid GET URL %q: %s", args[1], err)
@@ -178,11 +198,17 @@ func (w *Watchdog) Parse(input string) error {
 			if u.Scheme != "http" && u.Scheme != "https" {
 				return fmt.Errorf("invalid GET URL scheme %q - must be http or https", u.Scheme)
 			}
-			w.dog = &getDog{args[1]}
+			if len(args) > 2 {
+				timeout, err = strconv.Atoi(args[2])
+				if err != nil {
+					return fmt.Errorf("get watchdog second argument must be integer, not %s", args[2])
+				}
+			}
+			w.dog = &getDog{args[1], timeout}
 		}
 	}
 	if w.dog == nil {
-		return fmt.Errorf("invalid watchdog %q - available watchdogs are run, connect and get")
+		return fmt.Errorf("invalid watchdog %q - available watchdogs are run, connect and get", input)
 	}
 	return nil
 }
