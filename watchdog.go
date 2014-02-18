@@ -161,7 +161,7 @@ func (w *Watchdog) Parse(input string) error {
 				proto = args[1]
 				addr = args[2]
 			default:
-				return fmt.Errorf("run watchdog requires one or two arguments")
+				return fmt.Errorf("run watchdog requires one or two arguments, %d given", len(args))
 			}
 			if _, _, err := net.SplitHostPort(addr); err != nil {
 				return fmt.Errorf("address %q must specifiy a host and a port", addr)
