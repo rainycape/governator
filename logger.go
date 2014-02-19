@@ -3,92 +3,133 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"gnd.la/util"
+	"gnd.la/util/textutil"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
-var (
-	newLine = []byte{'\n'}
-)
-
-func formatTime(t time.Time) string {
-	return t.Format("2006-01-02 15:04:05")
-}
-
-type sink struct {
-	logger *logger
+type Out struct {
+	Logger *Logger
 	prefix string
 	buf    []byte
 }
 
-func (s *sink) Write(b []byte) (int, error) {
-	if len(s.buf) == 0 && bytes.IndexByte(b, '\n') == (len(b)-1) {
-		s.logger.Write(s.prefix, b)
+func (o *Out) Write(b []byte) (int, error) {
+	if len(o.buf) == 0 && bytes.IndexByte(b, '\n') == (len(b)-1) {
+		o.Logger.Write(o.prefix, b)
 	} else {
-		s.buf = append(s.buf, b...)
-		p := bytes.IndexByte(s.buf, '\n')
+		o.buf = append(o.buf, b...)
+		p := bytes.IndexByte(o.buf, '\n')
 		for p >= 0 {
-			rem := len(s.buf) - p - 1
-			s.logger.Write(s.prefix, s.buf[:p+1])
+			rem := len(o.buf) - p - 1
+			o.Logger.Write(o.prefix, o.buf[:p+1])
 			if rem > 0 {
-				copy(s.buf, s.buf[p+1:])
+				copy(o.buf, o.buf[p+1:])
 			}
-			s.buf = s.buf[:rem]
-			p = bytes.IndexByte(s.buf, '\n')
+			o.buf = o.buf[:rem]
+			p = bytes.IndexByte(o.buf, '\n')
 		}
 	}
 	return len(b), nil
 }
 
-type monitor func(string, []byte)
-
-type logger struct {
-	w       io.WriteCloser
-	stdout  *sink
-	stderr  *sink
-	monitor monitor
-}
-
-func (l *logger) Write(prefix string, b []byte) {
-	fmt.Fprintf(l.w, "[%s] %s - ", prefix, formatTime(time.Now()))
-	l.w.Write(b)
-	if b[len(b)-1] != '\n' {
-		l.w.Write(newLine)
-	}
-	l.Flush()
-	if l.monitor != nil {
-		l.monitor(prefix, b)
-	}
-}
-
-func (l *logger) WriteString(prefix string, s string) {
-	l.Write(prefix, []byte(s))
-}
-
-type syncer interface {
-	Sync() error
-}
-
-type flusher interface {
+type Writer interface {
+	Open(string) error
+	Close() error
+	Write(string, []byte) error
 	Flush() error
 }
 
-func (l *logger) Flush() {
-	if s, ok := l.w.(syncer); ok {
-		s.Sync()
-	}
-	if f, ok := l.w.(flusher); ok {
-		f.Flush()
-	}
+type Monitor func(string, []byte)
+
+type Logger struct {
+	Name    string
+	w       Writer
+	Stdout  *Out
+	Stderr  *Out
+	Monitor Monitor
+	buf     []byte
+	mu      sync.Mutex
 }
 
-func (l *logger) Close() error {
+func (l *Logger) Open() error {
+	return l.w.Open(l.Name)
+}
+
+func (l *Logger) Close() error {
 	return l.w.Close()
 }
 
-func newLogger(w io.WriteCloser) *logger {
-	log := &logger{w: w}
-	log.stdout = &sink{logger: log, prefix: "stdout"}
-	log.stderr = &sink{logger: log, prefix: "stderr"}
-	return log
+func (l *Logger) Write(prefix string, b []byte) error {
+	now := time.Now().Unix()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf = strconv.AppendInt(l.buf[:0], now, 10)
+	l.buf = append(l.buf, ' ', '-', ' ')
+	l.buf = append(l.buf, b...)
+	if b[len(b)-1] != '\n' {
+		l.buf = append(l.buf, '\n')
+	}
+	if err := l.w.Write(prefix, l.buf); err != nil {
+		return err
+	}
+	if err := l.w.Flush(); err != nil {
+		return err
+	}
+	if l.Monitor != nil {
+		l.Monitor(prefix, l.buf)
+	}
+	return nil
+}
+
+func (l *Logger) WriteString(prefix string, s string) {
+	l.Write(prefix, []byte(s))
+}
+
+func (l *Logger) Flush() {
+	l.w.Flush()
+}
+
+func (l *Logger) Parse(input string) error {
+	fmt.Println("PARSE LOGGER", input)
+	if input == "" {
+		input = "file"
+	}
+	args, err := textutil.SplitFields(input, " ")
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(args[0]) {
+	case "file":
+		maxSize := uint64(500 * 1024 * 1024) // 500MB
+		count := 10                          // 10 rotated files
+		switch len(args) {
+		case 1:
+			break
+		case 3:
+			c, err := strconv.Atoi(args[2])
+			if err != nil {
+				return fmt.Errorf("invalid file count %q, must be an integer", args[2])
+			}
+			count = c
+			fallthrough
+		case 2:
+			size, err := util.ParseSize(args[1])
+			if err != nil {
+				return err
+			}
+			maxSize = size
+		default:
+			return fmt.Errorf("invalid number of arguments for file logger - must be one or two, %d given", len(args)-1)
+		}
+		l.w = &fileWriter{maxSize: maxSize, count: count}
+	default:
+		return fmt.Errorf("invalid logger %s", args[0])
+	}
+	l.Stdout = &Out{Logger: l, prefix: "stdout"}
+	l.Stderr = &Out{Logger: l, prefix: "stderr"}
+	return nil
 }

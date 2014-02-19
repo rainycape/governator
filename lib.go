@@ -8,7 +8,6 @@ import (
 const (
 	SocketPath = "/tmp/governator.sock"
 	AppName    = "governator"
-	LogDir     = "/var/log/governator"
 )
 
 type resp uint8

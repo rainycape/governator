@@ -15,6 +15,15 @@ import (
 	"strings"
 	"sync"
 	"text/tabwriter"
+	"time"
+)
+
+func formatTime(t time.Time) string {
+	return t.Format("2006-01-02 15:04:05")
+}
+
+var (
+	newLine = []byte{'\n'}
 )
 
 var services struct {
@@ -254,12 +263,12 @@ func serveConn(conn net.Conn) error {
 				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is not running\n", name))
 				break
 			}
-			if st.logger.monitor != nil {
+			if st.Config.Logger.Monitor != nil {
 				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is already being monitored\n", name))
 				break
 			}
 			ch := make(chan bool, 1)
-			st.logger.monitor = func(prefix string, b []byte) {
+			st.Config.Logger.Monitor = func(prefix string, b []byte) {
 				var buf bytes.Buffer
 				buf.WriteByte('[')
 				buf.WriteString(prefix)
@@ -279,7 +288,7 @@ func serveConn(conn net.Conn) error {
 				ch <- true
 			}()
 			<-ch
-			st.logger.monitor = nil
+			st.Config.Logger.Monitor = nil
 			return nil
 		case "conf":
 			if len(args) != 2 {
@@ -365,8 +374,6 @@ func daemonMain() error {
 	if u.Uid != "0" {
 		return errors.New("govenator daemon must be run as root")
 	}
-	// Make logs directory
-	os.Mkdir(LogDir, 0755)
 	configs, err := ParseConfigs()
 	if err != nil {
 		return err

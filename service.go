@@ -5,7 +5,6 @@ import (
 	"gnd.la/log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"reflect"
 	"sync"
 	"syscall"
@@ -35,7 +34,6 @@ type Service struct {
 	Restarts int
 	Err      error
 	Ch       chan error
-	logger   *logger
 }
 
 func newService(cfg *Config) *Service {
@@ -46,23 +44,6 @@ func (s *Service) Name() string {
 	return s.Config.ServiceName()
 }
 
-func (s *Service) initLogger() {
-	var m monitor
-	if s.logger != nil {
-		s.logger.Close()
-		m = s.logger.monitor
-		s.logger = nil
-	}
-	logPath := filepath.Join(LogDir, s.Name()+".log")
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		s.errorf("error opening log file %s: %s", logPath, err)
-		return
-	}
-	s.logger = newLogger(f)
-	s.logger.monitor = m
-}
-
 func (s *Service) mightSendErr(err error) {
 	select {
 	case s.Ch <- err:
@@ -71,6 +52,9 @@ func (s *Service) mightSendErr(err error) {
 }
 
 func (s *Service) Start() error {
+	if err := s.Config.Logger.Open(); err != nil {
+		return err
+	}
 	if err := s.startService(); err != nil {
 		return err
 	}
@@ -83,7 +67,6 @@ func (s *Service) Start() error {
 func (s *Service) Run() {
 	s.Lock()
 	s.State = StateStarted
-	s.initLogger()
 	s.Unlock()
 	for {
 		s.Lock()
@@ -99,9 +82,9 @@ func (s *Service) Run() {
 			s.Unlock()
 			break
 		}
-		if s.logger != nil {
-			cmd.Stdout = s.logger.stdout
-			cmd.Stderr = s.logger.stderr
+		if s.Config.Logger != nil {
+			cmd.Stdout = s.Config.Logger.Stdout
+			cmd.Stderr = s.Config.Logger.Stderr
 		}
 		s.Cmd = cmd
 		s.Started = time.Now()
@@ -218,9 +201,8 @@ func (s *Service) stopService() error {
 	s.Restarts = 0
 	s.Unlock()
 	s.infof("stopped")
-	if s.logger != nil {
-		s.logger.Close()
-		s.logger = nil
+	if s.Config.Logger != nil {
+		s.Config.Logger.Close()
 	}
 	return nil
 }
@@ -228,8 +210,8 @@ func (s *Service) stopService() error {
 func (s *Service) log(level log.LLevel, prefix string, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	log.Logf(level, "[%s] %s", s.Name(), msg)
-	if s.logger != nil {
-		s.logger.Write(prefix, []byte(msg))
+	if s.Config.Logger != nil {
+		s.Config.Logger.WriteString(prefix, msg)
 	}
 }
 

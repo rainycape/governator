@@ -27,6 +27,7 @@ type Config struct {
 	Priority         int `default:"1000"`
 	Watchdog         *Watchdog
 	WatchdogInterval int `default:"300"`
+	Logger           *Logger
 	Err              error
 }
 
@@ -117,6 +118,11 @@ func ParseConfig(filename string) *Config {
 	cfg := &Config{File: filename}
 	err := config.ParseFile(filepath.Join(servicesDir(), filename), cfg)
 	cfg.Err = err
+	if cfg.Logger == nil {
+		cfg.Logger = new(Logger)
+		cfg.Logger.Parse("")
+	}
+	cfg.Logger.Name = cfg.ServiceName()
 	return cfg
 }
 
