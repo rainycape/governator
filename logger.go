@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gnd.la/util"
 	"gnd.la/util/textutil"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,6 +127,32 @@ func (l *Logger) Parse(input string) error {
 			return fmt.Errorf("invalid number of arguments for file logger - must be one or two, %d given", len(args)-1)
 		}
 		l.w = &fileWriter{maxSize: maxSize, count: count}
+	case "syslog":
+		var scheme string
+		var addr string
+		switch len(args) {
+		case 1:
+			break
+		case 2:
+			u, err := url.Parse(args[1])
+			if err != nil {
+				return fmt.Errorf("invalid syslog URL %q: %s", args[1], err)
+			}
+			if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+				return fmt.Errorf("invalid syslog URL %q: must not have user, nor path, nor query, nor fragment", args[1])
+			}
+			if u.Scheme == "" {
+				return fmt.Errorf("invalid syslog URL %q: scheme can't be empty", args[1])
+			}
+			if u.Host == "" {
+				return fmt.Errorf("invalid syslog URL %q: host can't be empty", args[1])
+			}
+			scheme = u.Scheme
+			addr = u.Host
+		default:
+			return fmt.Errorf("invalid number of arguments for syslog logger - must be zero or one, %d given", len(args)-1)
+		}
+		l.w = &syslogWriter{scheme: scheme, addr: addr}
 	default:
 		return fmt.Errorf("invalid logger %s", args[0])
 	}
