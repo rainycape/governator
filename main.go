@@ -17,7 +17,8 @@ var (
 	defaultConfigDir  = fmt.Sprintf("/etc/%s", AppName)
 	configDir         = flag.String("c", defaultConfigDir, "Configuration directory")
 	printVersion      = flag.Bool("V", false, "Print version and exit")
-	governatorVersion = "<unknown>"
+	governatorVersion = "1.0"
+	gitVersion        = ""
 )
 
 func testConfigurations() {
@@ -53,7 +54,7 @@ func main() {
 	}
 	switch {
 	case *printVersion:
-		fmt.Println(governatorVersion)
+		fmt.Println(governatorVersion, gitVersion)
 	case *testConfig:
 		testConfigurations()
 	case *daemon:
