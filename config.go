@@ -67,8 +67,13 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 			}
 		}
 	}
-	var uid uint32
-	var gid uint32
+	info, err := os.Stat(fields[0])
+	if err != nil {
+		return nil, err
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	uid := stat.Uid
+	gid := stat.Gid
 	if c.Group != "" {
 		if g := getGroupId(c.Group); g > 0 {
 			gid = uint32(g)
