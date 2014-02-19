@@ -263,12 +263,12 @@ func serveConn(conn net.Conn) error {
 				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is not running\n", name))
 				break
 			}
-			if st.Config.Logger.Monitor != nil {
+			if st.Config.Log.Monitor != nil {
 				err = encodeResponse(conn, respErr, fmt.Sprintf("%s is already being monitored\n", name))
 				break
 			}
 			ch := make(chan bool, 1)
-			st.Config.Logger.Monitor = func(prefix string, b []byte) {
+			st.Config.Log.Monitor = func(prefix string, b []byte) {
 				var buf bytes.Buffer
 				buf.WriteByte('[')
 				buf.WriteString(prefix)
@@ -288,7 +288,7 @@ func serveConn(conn net.Conn) error {
 				ch <- true
 			}()
 			<-ch
-			st.Config.Logger.Monitor = nil
+			st.Config.Log.Monitor = nil
 			return nil
 		case "conf":
 			if len(args) != 2 {

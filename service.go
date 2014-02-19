@@ -52,7 +52,7 @@ func (s *Service) mightSendErr(err error) {
 }
 
 func (s *Service) Start() error {
-	if err := s.Config.Logger.Open(); err != nil {
+	if err := s.Config.Log.Open(); err != nil {
 		return err
 	}
 	if err := s.startService(); err != nil {
@@ -82,9 +82,9 @@ func (s *Service) Run() {
 			s.Unlock()
 			break
 		}
-		if s.Config.Logger != nil {
-			cmd.Stdout = s.Config.Logger.Stdout
-			cmd.Stderr = s.Config.Logger.Stderr
+		if s.Config.Log != nil {
+			cmd.Stdout = s.Config.Log.Stdout
+			cmd.Stderr = s.Config.Log.Stderr
 		}
 		s.Cmd = cmd
 		s.Started = time.Now()
@@ -201,8 +201,8 @@ func (s *Service) stopService() error {
 	s.Restarts = 0
 	s.Unlock()
 	s.infof("stopped")
-	if s.Config.Logger != nil {
-		s.Config.Logger.Close()
+	if s.Config.Log != nil {
+		s.Config.Log.Close()
 	}
 	return nil
 }
@@ -210,8 +210,8 @@ func (s *Service) stopService() error {
 func (s *Service) log(level log.LLevel, prefix string, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	log.Logf(level, "[%s] %s", s.Name(), msg)
-	if s.Config.Logger != nil {
-		s.Config.Logger.WriteString(prefix, msg)
+	if s.Config.Log != nil {
+		s.Config.Log.WriteString(prefix, msg)
 	}
 }
 
