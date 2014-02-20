@@ -1,7 +1,7 @@
 #/bin/sh
 
 set -e
-HOST=https://governator.io
+HOST=http://governator.io
 GET=`which wget`
 OUT=/usr/local/bin/governator
 
