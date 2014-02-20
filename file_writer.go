@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"gnd.la/log"
 	"io"
@@ -69,6 +70,9 @@ func (f *fileWriter) Close() error {
 }
 
 func (f *fileWriter) Write(prefix string, b []byte) error {
+	if f.f == nil {
+		return errors.New("file not opened")
+	}
 	c1, err := fmt.Fprintf(f.f, "[%s] ", prefix)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log/syslog"
 )
 
@@ -30,6 +31,9 @@ func (s *syslogWriter) Close() error {
 }
 
 func (s *syslogWriter) Write(prefix string, b []byte) error {
+	if s.w == nil {
+		return errors.New("not connected")
+	}
 	var err error
 	switch prefix {
 	case "error":
