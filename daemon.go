@@ -99,7 +99,7 @@ func startWatching(q *quit) error {
 			case ev := <-watcher.Event:
 				name := filepath.Base(ev.Name)
 				fmt.Println(name, ev)
-				if shouldIgnoreFile(name) {
+				if shouldIgnoreFile(name, ev.IsDelete() || ev.IsRename()) {
 					break
 				}
 				services.Lock()

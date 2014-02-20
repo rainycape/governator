@@ -140,7 +140,7 @@ func ParseConfigs() ([]*Config, error) {
 	var configs []*Config
 	for _, v := range files {
 		name := v.Name()
-		if shouldIgnoreFile(name) {
+		if shouldIgnoreFile(name, false) {
 			continue
 		}
 		cfg := ParseConfig(name)
@@ -150,13 +150,15 @@ func ParseConfigs() ([]*Config, error) {
 	return configs, nil
 }
 
-func shouldIgnoreFile(name string) bool {
+func shouldIgnoreFile(name string, deleted bool) bool {
 	if name == "" || name[0] == '.' || strings.HasSuffix(name, "~") {
 		return true
 	}
-	info, err := os.Stat(filepath.Join(servicesDir(), name))
-	if err != nil || info.Size() == 0 || info.IsDir() {
-		return true
+	if !deleted {
+		info, err := os.Stat(filepath.Join(servicesDir(), name))
+		if err != nil || info.Size() == 0 || info.IsDir() {
+			return true
+		}
 	}
 	return false
 }
