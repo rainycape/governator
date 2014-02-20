@@ -34,10 +34,17 @@ func sendCommand(args []string) (bool, error) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt)
 	defer signal.Stop(ch)
+	done := make(chan struct{}, 1)
+	defer func() {
+		done <- struct{}{}
+	}()
 	go func() {
-		<-ch
-		closed = true
-		conn.Close()
+		select {
+		case <-ch:
+			closed = true
+			conn.Close()
+		case <-done:
+		}
 	}()
 	ok := true
 	for {
