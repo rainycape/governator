@@ -100,7 +100,9 @@ func (s *Service) Run() {
 		time.AfterFunc(time.Duration(float64(minTime)*1.1), func() {
 			s.Lock()
 			defer s.Unlock()
-			if s.Err == nil {
+			if s.Cmd != nil {
+				// Clear any potentially stored errors
+				s.Err = nil
 				s.mightSendErr(nil)
 				s.infof("started")
 			}
