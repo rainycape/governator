@@ -95,7 +95,6 @@ func (l *Logger) Flush() {
 }
 
 func (l *Logger) Parse(input string) error {
-	fmt.Println("PARSE LOGGER", input)
 	if input == "" {
 		input = "file"
 	}
