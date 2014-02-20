@@ -219,7 +219,7 @@ func serveConn(conn net.Conn) error {
 				_, err = stopService(conn, st)
 			}
 		case "restart":
-			var stopped bool
+			stopped := true
 			if st.State == StateStarted {
 				stopped, err = stopService(conn, st)
 			}
