@@ -33,20 +33,21 @@ type Service struct {
 	Started  time.Time
 	Restarts int
 	Err      error
-	Ch       chan error
+	startCh  chan error
+	stopCh   chan error
 }
 
 func newService(cfg *Config) *Service {
-	return &Service{Config: cfg, Ch: make(chan error)}
+	return &Service{Config: cfg, startCh: make(chan error), stopCh: make(chan error)}
 }
 
 func (s *Service) Name() string {
 	return s.Config.ServiceName()
 }
 
-func (s *Service) mightSendErr(err error) {
+func (s *Service) mightSendStartErr(err error) {
 	select {
-	case s.Ch <- err:
+	case s.startCh <- err:
 	default:
 	}
 }
@@ -103,7 +104,7 @@ func (s *Service) Run() {
 			if s.Cmd != nil {
 				// Clear any potentially stored errors
 				s.Err = nil
-				s.mightSendErr(nil)
+				s.mightSendStartErr(nil)
 				s.infof("started")
 			}
 		})
@@ -111,7 +112,8 @@ func (s *Service) Run() {
 		s.Lock()
 		if s.State != StateStarted {
 			s.Cmd = nil
-			s.Ch <- err
+			s.mightSendStartErr(err)
+			s.stopCh <- nil
 			s.Unlock()
 			break
 		}
@@ -120,7 +122,7 @@ func (s *Service) Run() {
 			s.Cmd = nil
 			s.State = StateFailed
 			s.Err = fmt.Errorf("exited too fast (%s)", since)
-			s.mightSendErr(s.Err)
+			s.mightSendStartErr(s.Err)
 			s.Unlock()
 			s.errorf(s.Err.Error())
 			break
@@ -159,7 +161,7 @@ func (s *Service) stopWatchdog() {
 
 func (s *Service) startService() error {
 	go s.Run()
-	return <-s.Ch
+	return <-s.startCh
 }
 
 func (s *Service) stopService() error {
@@ -176,26 +178,26 @@ func (s *Service) stopService() error {
 	s.infof("stopping")
 	if cmd.Process != nil {
 		cmd.Process.Signal(os.Signal(syscall.SIGTERM))
-	}
-	stopped := false
-	select {
-	case <-s.Ch:
-		stopped = true
-	case <-time.After(10 * time.Second):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-	}
-	if !stopped {
+		stopped := false
 		select {
-		case <-s.Ch:
-		case <-time.After(2 * time.Second):
-			s.Lock()
-			s.State = StateStarted
-			s.Unlock()
-			err := fmt.Errorf("could not stop, probably stuck")
-			s.errorf(err.Error())
-			return err
+		case <-s.stopCh:
+			stopped = true
+		case <-time.After(10 * time.Second):
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
+		}
+		if !stopped {
+			select {
+			case <-s.stopCh:
+			case <-time.After(2 * time.Second):
+				s.Lock()
+				s.State = StateStarted
+				s.Unlock()
+				err := fmt.Errorf("could not stop, probably stuck")
+				s.errorf(err.Error())
+				return err
+			}
 		}
 	}
 	s.Lock()
