@@ -97,6 +97,7 @@ func startWatching(q *quit) error {
 		for {
 			select {
 			case ev := <-watcher.Event:
+				log.Debugf("file watcher event %s", ev)
 				name := filepath.Base(ev.Name)
 				if shouldIgnoreFile(name, ev.IsDelete() || ev.IsRename()) {
 					break
@@ -343,6 +344,7 @@ func startServer(q *quit) error {
 			if err != nil {
 				log.Errorf("error accepting connection: %s", err)
 			}
+			log.Debugf("new connection %s", conn.RemoteAddr())
 			conns <- conn
 		}
 	}()

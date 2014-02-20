@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"gnd.la/log"
 	"gnd.la/util/textutil"
 	"io"
 	"net"
@@ -28,6 +29,7 @@ func sendCommand(args []string) (bool, error) {
 	if err := encodeArgs(conn, args); err != nil {
 		return false, err
 	}
+	log.Debugf("sent command %s", args)
 	closed := false
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt)
@@ -46,6 +48,7 @@ func sendCommand(args []string) (bool, error) {
 			}
 			return ok, err
 		}
+		log.Debugf("received response %d", r)
 		switch r {
 		case respEnd:
 			return ok, nil
