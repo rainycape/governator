@@ -317,6 +317,27 @@ func serveConn(conn net.Conn) error {
 				value += "\n"
 			}
 			err = encodeResponse(conn, r, value)
+		case "wait-for":
+			// wait until a service is registered
+			if len(args) != 2 {
+				err = encodeResponse(conn, respErr, fmt.Sprintf("wait-for requires one argument, %d given", len(args)-1))
+				break
+			}
+			start := time.Now()
+			// wait 10 seconds at max
+			found := false
+			for ii := 0; ii < 10; ii++ {
+				if _, s := serviceByFilename(args[1]); s != nil {
+					found = true
+					break
+				}
+				time.Sleep(time.Second)
+			}
+			if found {
+				err = encodeResponse(conn, respOk, "")
+			} else {
+				err = encodeResponse(conn, respErr, fmt.Sprintf("service %s not found after waiting %s", args[1], time.Since(start)))
+			}
 		default:
 			err = encodeResponse(conn, respErr, fmt.Sprintf("unknown command %s - %s\n", cmd, help))
 			if err != nil {
