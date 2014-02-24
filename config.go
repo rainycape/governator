@@ -108,9 +108,6 @@ func (c *Config) ServiceName() string {
 	if c.Name != "" {
 		return c.Name
 	}
-	if fields, err := textutil.SplitFields(c.Command, " "); err == nil && len(fields) > 0 {
-		return filepath.Base(fields[0])
-	}
 	return c.File
 }
 
