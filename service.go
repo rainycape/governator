@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"gnd.la/log"
+	"math"
 	"os"
 	"os/exec"
 	"reflect"
@@ -18,36 +19,53 @@ const (
 	StateStopping
 	StateStarted
 	StateStarting
+	StateBackoff
 	StateFailed
 )
 
+func (s State) isRunState() bool {
+	return s == StateStarted || s == StateStarting
+}
+
+func (s State) canStop() bool {
+	return s.isRunState() || s == StateBackoff
+}
+
 const (
-	minTime = time.Second
+	minTime    = time.Second
+	maxRetries = 10
 )
 
 type Service struct {
 	sync.Mutex
-	Config   *Config
-	Cmd      *exec.Cmd
-	State    State
-	Started  time.Time
-	Restarts int
-	Err      error
-	startCh  chan error
-	stopCh   chan error
+	Config     *Config
+	Cmd        *exec.Cmd
+	State      State
+	Started    time.Time
+	Restarts   int
+	Err        error
+	stopCh     chan error
+	retries    int
+	startTimer *time.Timer
+	nextStart  time.Time
 }
 
 func newService(cfg *Config) *Service {
-	return &Service{Config: cfg, startCh: make(chan error), stopCh: make(chan error)}
+	return &Service{Config: cfg, stopCh: make(chan error)}
 }
 
 func (s *Service) Name() string {
 	return s.Config.ServiceName()
 }
 
-func (s *Service) mightSendStartErr(err error) {
+func (s *Service) sendErr(ch *chan<- error, err error) {
+	if err != nil && s.State != StateStopping {
+		s.errorf("%v", err)
+	}
+	s.Err = err
 	select {
-	case s.startCh <- err:
+	case *ch <- err:
+		*ch = nil
 	default:
 	}
 }
@@ -65,7 +83,39 @@ func (s *Service) Start() error {
 	return nil
 }
 
-func (s *Service) Run() {
+func (s *Service) startIn(d time.Duration) {
+	s.stopTimer()
+	s.startTimer = time.AfterFunc(d, func() { s.Run(nil) })
+	s.nextStart = time.Now().Add(d)
+}
+
+func (s *Service) started(ch *chan<- error) {
+	s.State = StateStarted
+	s.stopTimer()
+	s.sendErr(ch, nil)
+	s.retries = 0
+}
+
+func (s *Service) startFailed(ch *chan<- error, err error) {
+	s.sendErr(ch, err)
+	if s.retries < maxRetries-1 {
+		s.State = StateBackoff
+		duration := time.Second * time.Duration(math.Pow(2, float64(s.retries)))
+		s.startIn(duration)
+		s.retries++
+		s.infof("will retry in %s", duration)
+	} else {
+		s.State = StateFailed
+		s.Cmd = nil
+		s.errorf("maximum retries reached")
+	}
+}
+
+func (s *Service) untilNextRestart() time.Duration {
+	return s.nextStart.Sub(time.Now())
+}
+
+func (s *Service) Run(ch chan<- error) {
 	s.Lock()
 	s.State = StateStarted
 	s.Unlock()
@@ -78,8 +128,8 @@ func (s *Service) Run() {
 		cmd, err := s.Config.Cmd()
 		if err != nil {
 			s.State = StateFailed
-			s.Err = err
 			s.errorf("could not initialize: %s", err)
+			s.sendErr(&ch, err)
 			s.Unlock()
 			break
 		}
@@ -91,40 +141,33 @@ func (s *Service) Run() {
 		s.Started = time.Now()
 		s.infof("starting")
 		if err := s.Cmd.Start(); err != nil {
-			s.State = StateFailed
-			s.Err = err
 			s.errorf("failed to start: %s", err)
+			s.startFailed(&ch, err)
 			s.Unlock()
 			break
 		}
 		s.Unlock()
-		time.AfterFunc(time.Duration(float64(minTime)*1.1), func() {
+		timer := time.AfterFunc(time.Duration(float64(minTime)*1.1), func() {
 			s.Lock()
 			defer s.Unlock()
-			if s.Cmd != nil {
-				// Clear any potentially stored errors
-				s.Err = nil
-				s.mightSendStartErr(nil)
-				s.infof("started")
-			}
+			// Clear any potentially stored errors
+			s.started(&ch)
+			s.infof("started")
 		})
 		err = s.Cmd.Wait()
+		timer.Stop()
 		s.Lock()
 		if s.State != StateStarted {
 			s.Cmd = nil
-			s.mightSendStartErr(err)
+			s.sendErr(&ch, err)
 			s.stopCh <- nil
 			s.Unlock()
 			break
 		}
 		if since := time.Since(s.Started); since < minTime {
 			// Consider failure
-			s.Cmd = nil
-			s.State = StateFailed
-			s.Err = fmt.Errorf("exited too fast (%s)", since)
-			s.mightSendStartErr(s.Err)
+			s.startFailed(&ch, fmt.Errorf("exited too fast (%s)", since))
 			s.Unlock()
-			s.errorf(s.Err.Error())
 			break
 		}
 		s.Restarts++
@@ -159,43 +202,59 @@ func (s *Service) stopWatchdog() {
 	}
 }
 
+func (s *Service) stopTimer() {
+	if s.startTimer != nil {
+		s.startTimer.Stop()
+		s.startTimer = nil
+		s.nextStart = time.Time{}
+	}
+}
+
 func (s *Service) startService() error {
-	go s.Run()
-	return <-s.startCh
+	ch := make(chan error)
+	s.Lock()
+	s.stopTimer()
+	s.Unlock()
+	go s.Run(ch)
+	err := <-ch
+	close(ch)
+	return err
 }
 
 func (s *Service) stopService() error {
 	s.Lock()
-	s.State = StateStopping
-	cmd := s.Cmd
-	s.Unlock()
-	if cmd == nil {
-		s.Lock()
+	s.stopTimer()
+	if !s.State.isRunState() {
+		if s.State.canStop() {
+			s.infof("stopped")
+		}
 		s.State = StateStopped
 		s.Unlock()
 		return nil
 	}
+	prevState := s.State
+	s.State = StateStopping
 	s.infof("stopping")
-	if cmd.Process != nil {
-		cmd.Process.Signal(os.Signal(syscall.SIGTERM))
+	p := s.Cmd.Process
+	s.Unlock()
+	if s != nil {
+		p.Signal(os.Signal(syscall.SIGTERM))
 		stopped := false
 		select {
 		case <-s.stopCh:
 			stopped = true
 		case <-time.After(10 * time.Second):
-			if cmd.Process != nil {
-				cmd.Process.Kill()
-			}
+			p.Kill()
 		}
 		if !stopped {
 			select {
 			case <-s.stopCh:
 			case <-time.After(2 * time.Second):
 				s.Lock()
-				s.State = StateStarted
+				s.State = prevState
 				s.Unlock()
 				err := fmt.Errorf("could not stop, probably stuck")
-				s.errorf(err.Error())
+				s.errorf("%v", err)
 				return err
 			}
 		}

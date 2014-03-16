@@ -214,14 +214,14 @@ func serveConn(conn net.Conn) error {
 				err = startService(conn, st)
 			}
 		case "stop":
-			if st.State != StateStarted {
+			if !st.State.canStop() {
 				err = encodeResponse(conn, respOk, fmt.Sprintf("%s is not running\n", name))
 			} else {
 				_, err = stopService(conn, st)
 			}
 		case "restart":
 			stopped := true
-			if st.State == StateStarted {
+			if st.State.isRunState() {
 				stopped, err = stopService(conn, st)
 			}
 			if stopped {
@@ -247,6 +247,8 @@ func serveConn(conn net.Conn) error {
 					} else {
 						fmt.Fprintf(w, "RUNNING since %s", formatTime(v.Started))
 					}
+				case StateBackoff:
+					fmt.Fprintf(w, "BACKOFF - %s - next retry in %s", v.Err, v.untilNextRestart())
 				case StateFailed:
 					fmt.Fprintf(w, "FAILED - %s", v.Err)
 				default:
