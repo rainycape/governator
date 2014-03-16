@@ -22,6 +22,7 @@ type Config struct {
 	Name             string
 	Dir              string
 	Env              map[string]string
+	Start            bool `default:"true"`
 	User             string
 	Group            string
 	Priority         int `default:"1000"`

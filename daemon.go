@@ -406,7 +406,9 @@ func daemonMain() error {
 		ensureUniqueName(v)
 		s := newService(v)
 		services.list = append(services.list, s)
-		s.Start()
+		if s.Config.Start {
+			s.Start()
+		}
 	}
 	servicesByPriority(services.list).Sort()
 	services.Unlock()
