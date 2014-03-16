@@ -63,9 +63,9 @@ func ensureUniqueName(cfg *Config) {
 	orig := cfg.ServiceName()
 	for {
 		name := cfg.ServiceName()
-		unique := true
+		unique := name != "all"
 		for _, v := range services.list {
-			if name == v.Name() {
+			if v != nil && name == v.Name() {
 				unique = false
 				cfg.Name = fmt.Sprintf("%s-%d", orig, ii)
 				ii++
@@ -188,7 +188,7 @@ func serveConn(conn net.Conn) error {
 				err = encodeResponse(conn, respErr, fmt.Sprintf("command %s requires exactly one argument\n", cmd))
 				cmd = ""
 			}
-			if cmd != "" {
+			if cmd != "" && (cmd == "log" || args[1] != "all") {
 				services.Lock()
 				for _, v := range services.list {
 					if sn := v.Name(); sn == args[1] {
@@ -208,18 +208,34 @@ func serveConn(conn net.Conn) error {
 		case "":
 			// cmd already handled
 		case "start":
+			if st == nil {
+				// all
+				startServices(conn)
+				break
+			}
 			if st.State == StateStarted {
 				err = encodeResponse(conn, respOk, fmt.Sprintf("%s is already running\n", name))
 			} else {
 				err = startService(conn, st)
 			}
 		case "stop":
+			if st == nil {
+				// all
+				stopServices(conn)
+				break
+			}
 			if !st.State.canStop() {
 				err = encodeResponse(conn, respOk, fmt.Sprintf("%s is not running\n", name))
 			} else {
 				_, err = stopService(conn, st)
 			}
 		case "restart":
+			if st == nil {
+				// all
+				stopServices(conn)
+				startServices(conn)
+				break
+			}
 			stopped := true
 			if st.State.isRunState() {
 				stopped, err = stopService(conn, st)
@@ -390,6 +406,26 @@ func startServer(q *quit) error {
 	return nil
 }
 
+func startServices(conn net.Conn) {
+	services.Lock()
+	defer services.Unlock()
+	for _, s := range services.list {
+		if s.Config.Start {
+			startService(conn, s)
+		}
+	}
+}
+
+func stopServices(conn net.Conn) {
+	services.Lock()
+	defer services.Unlock()
+	// Stop in reverse order, to respect priorities
+	for ii := len(services.list) - 1; ii >= 0; ii-- {
+		s := services.list[ii]
+		stopService(conn, s)
+	}
+}
+
 func daemonMain() error {
 	u, err := user.Current()
 	if err != nil {
@@ -403,17 +439,15 @@ func daemonMain() error {
 		return err
 	}
 	services.Lock()
-	services.list = make([]*Service, 0, len(configs))
-	for _, v := range configs {
+	services.list = make([]*Service, len(configs))
+	for ii, v := range configs {
 		ensureUniqueName(v)
 		s := newService(v)
-		services.list = append(services.list, s)
-		if s.Config.Start {
-			s.Start()
-		}
+		services.list[ii] = s
 	}
 	servicesByPriority(services.list).Sort()
 	services.Unlock()
+	startServices(nil)
 	quitWatcher := newQuit()
 	if err := startWatching(quitWatcher); err != nil {
 		log.Errorf("error watching %s, configuration won't be automatically updated: %s", servicesDir(), err)
@@ -431,19 +465,7 @@ func daemonMain() error {
 	// Wait for goroutines to exit cleanly
 	<-quitWatcher.stopped
 	<-quitServer.stopped
-	services.Lock()
-	var wg sync.WaitGroup
-	wg.Add(len(services.list))
-	// Stop in reverse order, to respect priorities
-	for ii := len(services.list) - 1; ii >= 0; ii-- {
-		v := services.list[ii]
-		go func(s *Service) {
-			s.Stop()
-			wg.Done()
-		}(v)
-	}
-	wg.Wait()
-	services.Unlock()
+	stopServices(nil)
 	log.Debugf("daemon exiting")
 	return nil
 }

@@ -69,11 +69,13 @@ func decodeArgs(r io.Reader) ([]string, error) {
 }
 
 func encodeResponse(w io.Writer, r resp, s string) error {
-	if err := codecWrite(w, r); err != nil {
-		return err
-	}
-	if err := encodeString(w, s); err != nil {
-		return err
+	if w != nil {
+		if err := codecWrite(w, r); err != nil {
+			return err
+		}
+		if err := encodeString(w, s); err != nil {
+			return err
+		}
 	}
 	return nil
 }
