@@ -21,7 +21,7 @@ type Config struct {
 	Command          string
 	Name             string
 	Dir              string
-	Environment      map[string]string
+	Env              map[string]string
 	User             string
 	Group            string
 	Priority         int `default:"1000"`
@@ -54,16 +54,16 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 		dir = filepath.Dir(fields[0])
 	}
 	cmd := &exec.Cmd{Path: fields[0], Args: fields, Dir: dir}
-	for k, v := range c.Environment {
+	for k, v := range c.Env {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
-	if _, ok := c.Environment["GOMAXPROCS"]; !ok {
+	if _, ok := c.Env["GOMAXPROCS"]; !ok {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("GOMAXPROCS=%d", runtime.NumCPU()))
 	}
 	for _, v := range os.Environ() {
 		if p := strings.IndexByte(v, '='); p >= 0 {
 			k := v[:p]
-			if _, ok := c.Environment[k]; !ok {
+			if _, ok := c.Env[k]; !ok {
 				cmd.Env = append(cmd.Env, v)
 			}
 		}
