@@ -13,6 +13,7 @@ import (
 
 const (
 	defaultWatchdogInterval = 300
+	defaultTimeout          = 60
 )
 
 type dog interface {
@@ -32,9 +33,37 @@ func (d *runDog) String() string {
 	return fmt.Sprintf("run: %s", d.argv)
 }
 
+func dialTimeout(timeout int) func(string, string) (net.Conn, error) {
+	to := time.Second * time.Duration(timeout)
+	return func(network, addr string) (net.Conn, error) {
+		conn, err := net.DialTimeout(network, addr, to)
+		if err != nil {
+			return nil, err
+		}
+		conn.SetDeadline(time.Now().Add(to))
+		return conn, nil
+	}
+}
+
+func getTimeout(name string, args []string) (int, error) {
+	var timeout int
+	if len(args) > 2 {
+		var err error
+		timeout, err = strconv.Atoi(args[2])
+		if err != nil {
+			return 0, fmt.Errorf("%s watchdog second argument must be integer, not %s", name, args[2])
+		}
+	}
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	return timeout, nil
+}
+
 type connectDog struct {
-	proto string
-	addr  string
+	proto   string
+	addr    string
+	timeout int
 }
 
 func (d *connectDog) connectProto() string {
@@ -49,7 +78,7 @@ func (d *connectDog) check() error {
 	if proto == "" {
 		proto = "tcp"
 	}
-	conn, err := net.Dial(d.connectProto(), d.addr)
+	conn, err := dialTimeout(d.timeout)(d.connectProto(), d.addr)
 	if err != nil {
 		return err
 	}
@@ -59,18 +88,6 @@ func (d *connectDog) check() error {
 
 func (d *connectDog) String() string {
 	return fmt.Sprintf("connect to: %s (%s)", d.addr, d.connectProto())
-}
-
-func dialTimeout(timeout int) func(string, string) (net.Conn, error) {
-	to := time.Second * time.Duration(timeout)
-	return func(network, addr string) (net.Conn, error) {
-		conn, err := net.DialTimeout(network, addr, to)
-		if err != nil {
-			return nil, err
-		}
-		conn.SetDeadline(time.Now().Add(to))
-		return conn, nil
-	}
 }
 
 type getDog struct {
@@ -85,10 +102,8 @@ func (d *getDog) check() error {
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s watchdog", AppName))
 	client := &http.Client{}
-	if d.timeout != 0 {
-		client.Transport = &http.Transport{
-			Dial: dialTimeout(d.timeout),
-		}
+	client.Transport = &http.Transport{
+		Dial: dialTimeout(d.timeout),
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -170,27 +185,28 @@ func (w *Watchdog) Parse(input string) error {
 			}
 			w.dog = &runDog{args[1:]}
 		case "connect":
-			var proto string
-			var addr string
-			switch len(args) {
-			case 2:
-				proto = "tcp"
-				addr = args[1]
-			case 3:
-				proto = args[1]
-				addr = args[2]
-			default:
-				return fmt.Errorf("run watchdog requires one or two arguments, %d given", len(args))
+			if len(args) != 2 && len(args) != 3 {
+				return fmt.Errorf("connect watchdog requires one or two arguments, %d given", len(args))
 			}
-			if _, _, err := net.SplitHostPort(addr); err != nil {
-				return fmt.Errorf("address %q must specifiy a host and a port", addr)
+			u, err := url.Parse(args[1])
+			if err != nil {
+				return fmt.Errorf("invalid connect URL %q: %s", args[1], err)
 			}
-			w.dog = &connectDog{proto, addr}
+			if u.Scheme != "tcp" && u.Scheme != "udp" {
+				return fmt.Errorf("invalid connect URL scheme %q - must be tcp or udp", u.Scheme)
+			}
+			if _, _, err := net.SplitHostPort(u.Host); err != nil {
+				return fmt.Errorf("address %q must specifiy a host and a port", u.Host)
+			}
+			timeout, err := getTimeout("connect", args)
+			if err != nil {
+				return err
+			}
+			w.dog = &connectDog{u.Scheme, u.Host, timeout}
 		case "get":
 			if len(args) != 2 && len(args) != 3 {
 				return fmt.Errorf("get watchdog requires two or three arguments, %d given", len(args))
 			}
-			var timeout int
 			u, err := url.Parse(args[1])
 			if err != nil {
 				return fmt.Errorf("invalid GET URL %q: %s", args[1], err)
@@ -198,11 +214,9 @@ func (w *Watchdog) Parse(input string) error {
 			if u.Scheme != "http" && u.Scheme != "https" {
 				return fmt.Errorf("invalid GET URL scheme %q - must be http or https", u.Scheme)
 			}
-			if len(args) > 2 {
-				timeout, err = strconv.Atoi(args[2])
-				if err != nil {
-					return fmt.Errorf("get watchdog second argument must be integer, not %s", args[2])
-				}
+			timeout, err := getTimeout("get", args)
+			if err != nil {
+				return err
 			}
 			w.dog = &getDog{args[1], timeout}
 		}

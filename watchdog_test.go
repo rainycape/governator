@@ -70,10 +70,12 @@ func TestWatchdog(t *testing.T) {
 		{"run echo foo", "", ""},
 		{"run false", "", "exit status 1"},
 		{"run does-not-exist", "", "exec: \"does-not-exist\": executable file not found in $PATH"},
-		{"connect tcp 127.0.0.1:1", "", "dial tcp 127.0.0.1:1: connection refused"},
+		{"connect tcp://127.0.0.1:1", "", "dial tcp 127.0.0.1:1: connection refused"},
 		{"invalid", "invalid watchdog \"invalid\" - available watchdogs are run, connect and get", ""},
-		{"connect tcp 127.0.0.1:" + strconv.Itoa(np), "", ""},
+		{"connect tcp://127.0.0.1:" + strconv.Itoa(np), "", ""},
 		{"get http://127.0.0.1:" + strconv.Itoa(hp), "", ""},
+		{"connect tcp://127.0.0.1:" + strconv.Itoa(np) + " 30", "", ""},
+		{"get http://127.0.0.1:" + strconv.Itoa(hp) + " 30", "", ""},
 		{"get http://127.0.0.1:" + strconv.Itoa(hpnr) + " 1", "", "Get http://127.0.0.1:" + strconv.Itoa(hpnr) + ": read tcp 127.0.0.1:" + strconv.Itoa(hpnr) + ": i/o timeout"},
 	}
 	for _, v := range tests {
