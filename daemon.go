@@ -428,6 +428,8 @@ func stopServices(conn net.Conn) {
 }
 
 func daemonMain() error {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, os.Signal(syscall.SIGTERM), os.Kill)
 	u, err := user.Current()
 	if err != nil {
 		return err
@@ -458,8 +460,6 @@ func daemonMain() error {
 		log.Errorf("error starting server, can't receive remote commands: %s", err)
 	}
 	// Wait for signal
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Signal(syscall.SIGTERM), os.Kill)
 	<-c
 	quitWatcher.sendStop()
 	quitServer.sendStop()
