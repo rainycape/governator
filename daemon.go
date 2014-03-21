@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"text/tabwriter"
 	"time"
 )
@@ -456,9 +457,9 @@ func daemonMain() error {
 	if err := startServer(quitServer); err != nil {
 		log.Errorf("error starting server, can't receive remote commands: %s", err)
 	}
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
 	// Wait for signal
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, os.Signal(syscall.SIGTERM), os.Kill)
 	<-c
 	quitWatcher.sendStop()
 	quitServer.sendStop()
