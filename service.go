@@ -172,7 +172,11 @@ func (s *Service) Run(ch chan<- error) {
 		}
 		s.Restarts++
 		s.Unlock()
-		s.infof("exited with error %s - restarting", err)
+		if err != nil {
+			s.infof("exited with error %s - restarting", err)
+		} else {
+			s.infof("exited without error - restarting")
+		}
 	}
 }
 
