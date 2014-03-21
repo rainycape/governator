@@ -13,12 +13,12 @@ import (
 )
 
 const help = `available commands are:
-    start <service>   : starts a service
-    stop <service>    : stops a service
-    restart <service> : restart
-    list              : list registered services
-    exit              : close the shell
-    help              : show help`
+    start <service|all>   : starts a service or all services, in priority order
+    stop <service|all>    : stops a service or all services, in priority order
+    restart <service|all> : restart a service or all services, in priority order
+    list                  : list registered services
+    exit                  : close the shell
+    help                  : show help`
 
 func sendCommand(args []string) (bool, error) {
 	conn, err := net.Dial("unix", SocketPath)
