@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -242,24 +243,31 @@ func (s *Service) stopService() error {
 	p := s.Cmd.Process
 	s.Unlock()
 	if s != nil {
-		p.Signal(os.Signal(syscall.SIGTERM))
-		stopped := false
-		select {
-		case <-s.stopCh:
-			stopped = true
-		case <-time.After(10 * time.Second):
-			p.Kill()
-		}
+		stopped := isStoppedErr(p.Signal(os.Signal(syscall.SIGTERM)))
 		if !stopped {
 			select {
 			case <-s.stopCh:
-			case <-time.After(2 * time.Second):
-				s.Lock()
-				s.State = prevState
-				s.Unlock()
-				err := fmt.Errorf("could not stop, probably stuck")
-				s.errorf("%v", err)
-				return err
+				stopped = true
+			case <-time.After(10 * time.Second):
+				stopped = isStoppedErr(p.Kill())
+			}
+			if !stopped {
+				select {
+				case <-s.stopCh:
+				case <-time.After(2 * time.Second):
+					// sending signal 0 checks that the process is
+					// alive and we're allowed to send the signal
+					// without actually sending anything
+					if isStoppedErr(p.Signal(syscall.Signal(0))) {
+						break
+					}
+					s.Lock()
+					s.State = prevState
+					s.Unlock()
+					err := fmt.Errorf("could not stop, probably stuck")
+					s.errorf("%v", err)
+					return err
+				}
 			}
 		}
 	}
@@ -308,4 +316,8 @@ func (s *Service) updateConfig(cfg *Config) {
 	if start {
 		s.Start()
 	}
+}
+
+func isStoppedErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "process already finished")
 }
