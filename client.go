@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"gnd.la/log"
-	"gnd.la/util/textutil"
+	"gnd.la/util/stringutil"
 	"io"
 	"net"
 	"os"
@@ -100,7 +100,7 @@ func clientMain(args []string) (bool, error) {
 		}
 		s = strings.TrimSpace(s)
 		if s != "" {
-			fields, err := textutil.SplitFields(s, " ")
+			fields, err := stringutil.SplitFields(s, " ")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error reading input: %s\n", err)
 				continue

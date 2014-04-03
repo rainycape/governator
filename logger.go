@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"gnd.la/util"
-	"gnd.la/util/textutil"
+	"gnd.la/util/formatutil"
+	"gnd.la/util/stringutil"
 	"net/url"
 	"strconv"
 	"strings"
@@ -102,7 +102,7 @@ func (l *Logger) Parse(input string) error {
 	if input == "" {
 		input = "file"
 	}
-	args, err := textutil.SplitFields(input, " ")
+	args, err := stringutil.SplitFields(input, " ")
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (l *Logger) Parse(input string) error {
 			count = c
 			fallthrough
 		case 2:
-			size, err := util.ParseSize(args[1])
+			size, err := formatutil.ParseSize(args[1])
 			if err != nil {
 				return err
 			}

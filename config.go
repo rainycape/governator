@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"gnd.la/config"
 	"gnd.la/log"
-	"gnd.la/util/textutil"
+	"gnd.la/util/stringutil"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -39,7 +39,7 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 	if c.Command == "" {
 		return nil, fmt.Errorf("no command")
 	}
-	fields, err := textutil.SplitFields(c.Command, " ")
+	fields, err := stringutil.SplitFields(c.Command, " ")
 	if err != nil {
 		return nil, err
 	}

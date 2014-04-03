@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"gnd.la/util/textutil"
+	"gnd.la/util/stringutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -173,7 +173,7 @@ func (w *Watchdog) Parse(input string) error {
 	if input == "" {
 		return nil
 	}
-	args, err := textutil.SplitFields(input, " ")
+	args, err := stringutil.SplitFields(input, " ")
 	if err != nil {
 		return err
 	}
