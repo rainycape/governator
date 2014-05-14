@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"gnd.la/util/formatutil"
+	"gnd.la/util/parseutil"
 	"gnd.la/util/stringutil"
 	"net/url"
 	"strconv"
@@ -121,7 +121,7 @@ func (l *Logger) Parse(input string) error {
 			count = c
 			fallthrough
 		case 2:
-			size, err := formatutil.ParseSize(args[1])
+			size, err := parseutil.Size(args[1])
 			if err != nil {
 				return err
 			}
