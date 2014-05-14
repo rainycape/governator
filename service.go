@@ -38,7 +38,8 @@ const (
 )
 
 type Service struct {
-	sync.Mutex
+	mu         sync.Mutex // protects access to the fields
+	st         sync.Mutex // prevents start/stop from running concurrently
 	Config     *Config
 	Cmd        *exec.Cmd
 	State      State
@@ -46,6 +47,7 @@ type Service struct {
 	Restarts   int
 	Err        error
 	stopCh     chan error
+	errCh      chan error
 	retries    int
 	startTimer *time.Timer
 	nextStart  time.Time
@@ -64,14 +66,27 @@ func (s *Service) sendErr(ch *chan<- error, err error) {
 		s.errorf("%v", err)
 	}
 	s.Err = err
-	select {
-	case *ch <- err:
-		*ch = nil
-	default:
+	if ch != nil && *ch != nil {
+		select {
+		case *ch <- err:
+			*ch = nil
+		default:
+		}
+	}
+	if s.errCh != nil {
+		select {
+		case s.errCh <- err:
+		default:
+		}
 	}
 }
 
 func (s *Service) Start() error {
+	s.st.Lock()
+	defer s.st.Unlock()
+	if s.State.isRunState() {
+		return nil
+	}
 	if err := s.Config.Log.Open(); err != nil {
 		return err
 	}
@@ -117,13 +132,13 @@ func (s *Service) untilNextRestart() time.Duration {
 }
 
 func (s *Service) Run(ch chan<- error) {
-	s.Lock()
+	s.mu.Lock()
 	s.State = StateStarted
-	s.Unlock()
+	s.mu.Unlock()
 	for {
-		s.Lock()
+		s.mu.Lock()
 		if s.State != StateStarted {
-			s.Unlock()
+			s.mu.Unlock()
 			break
 		}
 		cmd, err := s.Config.Cmd()
@@ -131,7 +146,7 @@ func (s *Service) Run(ch chan<- error) {
 			s.State = StateFailed
 			s.errorf("could not initialize: %s", err)
 			s.sendErr(&ch, err)
-			s.Unlock()
+			s.mu.Unlock()
 			break
 		}
 		if s.Config.Log != nil {
@@ -144,35 +159,35 @@ func (s *Service) Run(ch chan<- error) {
 		if err := s.Cmd.Start(); err != nil {
 			s.errorf("failed to start: %s", err)
 			s.startFailed(&ch, err)
-			s.Unlock()
+			s.mu.Unlock()
 			break
 		}
-		s.Unlock()
+		s.mu.Unlock()
 		timer := time.AfterFunc(time.Duration(float64(minTime)*1.1), func() {
-			s.Lock()
-			defer s.Unlock()
+			s.mu.Lock()
+			defer s.mu.Unlock()
 			// Clear any potentially stored errors
 			s.started(&ch)
 			s.infof("started")
 		})
 		err = s.Cmd.Wait()
 		timer.Stop()
-		s.Lock()
+		s.mu.Lock()
 		if s.State != StateStarted {
 			s.Cmd = nil
 			s.sendErr(&ch, err)
 			s.stopCh <- nil
-			s.Unlock()
+			s.mu.Unlock()
 			break
 		}
 		if since := time.Since(s.Started); since < minTime {
 			// Consider failure
 			s.startFailed(&ch, fmt.Errorf("exited too fast (%s)", since))
-			s.Unlock()
+			s.mu.Unlock()
 			break
 		}
 		s.Restarts++
-		s.Unlock()
+		s.mu.Unlock()
 		if err != nil {
 			s.infof("exited with error %s - restarting", err)
 		} else {
@@ -182,6 +197,8 @@ func (s *Service) Run(ch chan<- error) {
 }
 
 func (s *Service) Stop() error {
+	s.st.Lock()
+	defer s.st.Unlock()
 	s.stopWatchdog()
 	if err := s.stopService(); err != nil {
 		s.startWatchdog()
@@ -191,6 +208,8 @@ func (s *Service) Stop() error {
 }
 
 func (s *Service) startWatchdog() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.Config.Watchdog != nil {
 		interval := s.Config.WatchdogInterval
 		if interval < 0 {
@@ -202,9 +221,17 @@ func (s *Service) startWatchdog() error {
 }
 
 func (s *Service) stopWatchdog() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.Config.Watchdog != nil {
 		s.Config.Watchdog.Stop()
 	}
+}
+
+func (s *Service) stopTimerLocking() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopTimer()
 }
 
 func (s *Service) stopTimer() {
@@ -217,9 +244,7 @@ func (s *Service) stopTimer() {
 
 func (s *Service) startService() error {
 	ch := make(chan error)
-	s.Lock()
-	s.stopTimer()
-	s.Unlock()
+	s.stopTimerLocking()
 	go s.Run(ch)
 	err := <-ch
 	close(ch)
@@ -227,21 +252,21 @@ func (s *Service) startService() error {
 }
 
 func (s *Service) stopService() error {
-	s.Lock()
 	s.stopTimer()
+	s.mu.Lock()
 	if !s.State.isRunState() {
 		if s.State.canStop() {
 			s.infof("stopped")
 		}
 		s.State = StateStopped
-		s.Unlock()
+		s.mu.Unlock()
 		return nil
 	}
 	prevState := s.State
 	s.State = StateStopping
 	s.infof("stopping")
 	p := s.Cmd.Process
-	s.Unlock()
+	s.mu.Unlock()
 	if s != nil {
 		stopped := isStoppedErr(p.Signal(os.Signal(syscall.SIGTERM)))
 		if !stopped {
@@ -261,9 +286,9 @@ func (s *Service) stopService() error {
 					if isStoppedErr(p.Signal(syscall.Signal(0))) {
 						break
 					}
-					s.Lock()
+					s.mu.Lock()
 					s.State = prevState
-					s.Unlock()
+					s.mu.Unlock()
 					err := fmt.Errorf("could not stop, probably stuck")
 					s.errorf("%v", err)
 					return err
@@ -271,14 +296,14 @@ func (s *Service) stopService() error {
 			}
 		}
 	}
-	s.Lock()
+	s.mu.Lock()
 	s.State = StateStopped
 	s.Restarts = 0
-	s.Unlock()
-	s.infof("stopped")
+	s.mu.Unlock()
 	if s.Config.Log != nil {
 		s.Config.Log.Close()
 	}
+	s.infof("stopped")
 	return nil
 }
 
