@@ -16,6 +16,11 @@ const (
 	LogDir = "/var/log/governator"
 )
 
+var (
+	// Altered during tests
+	logDir = LogDir
+)
+
 type Out struct {
 	Logger *Logger
 	prefix string
@@ -129,7 +134,7 @@ func (l *Logger) Parse(input string) error {
 		default:
 			return fmt.Errorf("invalid number of arguments for file logger - must be one or two, %d given", len(args)-1)
 		}
-		l.w = &fileWriter{dir: LogDir, maxSize: maxSize, count: count}
+		l.w = &fileWriter{dir: logDir, maxSize: maxSize, count: count}
 	case "syslog":
 		var scheme string
 		var addr string
