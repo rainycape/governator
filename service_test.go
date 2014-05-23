@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+func setLogger(t *testing.T, cfg *Config, value string) {
+	if err := cfg.Log.Parse(value); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestService(t *testing.T) {
 	cfg := &Config{
 		File:    "/non-existant",
@@ -15,9 +21,7 @@ func TestService(t *testing.T) {
 		Name:    "sleep",
 		Log:     new(Logger),
 	}
-	if err := cfg.Log.Parse("file"); err != nil {
-		t.Fatal(err)
-	}
+	setLogger(t, cfg, "file")
 	s := newService(cfg)
 	s.errCh = make(chan error)
 	var wg sync.WaitGroup
@@ -69,9 +73,7 @@ func TestExitingService(t *testing.T) {
 		Name:    "true",
 		Log:     new(Logger),
 	}
-	if err := cfg.Log.Parse("file"); err != nil {
-		t.Fatal(err)
-	}
+	setLogger(t, cfg, "none")
 	s := newService(cfg)
 	err := s.Start()
 	if err == nil || !strings.Contains(err.Error(), "too fast") {

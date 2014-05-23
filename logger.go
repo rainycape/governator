@@ -161,6 +161,8 @@ func (l *Logger) Parse(input string) error {
 			return fmt.Errorf("invalid number of arguments for syslog logger - must be zero or one, %d given", len(args)-1)
 		}
 		l.w = &syslogWriter{scheme: scheme, addr: addr}
+	case "none":
+		l.w = &noneWriter{}
 	default:
 		return fmt.Errorf("invalid logger %s", args[0])
 	}
