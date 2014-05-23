@@ -1,14 +1,25 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
+	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
 
+var (
+	maxOpenRe = regexp.MustCompile("Max open files\\s+(\\d+)")
+)
+
 func setLogger(t *testing.T, cfg *Config, value string) {
+	cfg.Log = new(Logger)
 	if err := cfg.Log.Parse(value); err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +30,6 @@ func TestService(t *testing.T) {
 		File:    "/non-existant",
 		Command: "sleep 50000",
 		Name:    "sleep",
-		Log:     new(Logger),
 	}
 	setLogger(t, cfg, "file")
 	s := newService(cfg)
@@ -71,7 +81,6 @@ func TestExitingService(t *testing.T) {
 		File:    "/non-existant",
 		Command: "true",
 		Name:    "true",
-		Log:     new(Logger),
 	}
 	setLogger(t, cfg, "none")
 	s := newService(cfg)
@@ -86,6 +95,65 @@ func TestExitingService(t *testing.T) {
 	time.Sleep(s.untilNextRestart() + time.Second)
 	if s.Restarts > 0 {
 		t.Fatalf("expecting no restarts, got %d instead", s.Restarts)
+	}
+}
+
+func checkMaxOpenFiles(t *testing.T, s *Service, expect int) {
+	limitsFile := fmt.Sprintf("/proc/%d/limits", s.Cmd.Process.Pid)
+	data, err := ioutil.ReadFile(limitsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := maxOpenRe.FindStringSubmatch(string(data))
+	val, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != expect {
+		t.Errorf("expecting max open files %d, got %d", expect, val)
+	}
+}
+
+func getMaxOpenFiles(t *testing.T) int {
+	var limit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &limit); err != nil {
+		t.Fatal(err)
+	}
+	return int(limit.Cur)
+}
+
+func TestServiceMaxOpenFiles(t *testing.T) {
+	maxOpen1 := getMaxOpenFiles(t)
+	cfg := &Config{
+		File:    "/non-existant",
+		Command: "sleep 5000",
+		Name:    "sleep",
+	}
+	setLogger(t, cfg, "none")
+	s := newService(cfg)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	checkMaxOpenFiles(t, s, maxOpen1)
+	if err := s.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	sMaxOpen := maxOpen1 / 2
+	cfg.MaxOpenFiles = sMaxOpen
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	checkMaxOpenFiles(t, s, sMaxOpen)
+	if err := s.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() == 0 {
+		maxOpen2 := getMaxOpenFiles(t)
+		if maxOpen1 != maxOpen2 {
+			t.Errorf("max open files for this process changed from %d to %d", maxOpen1, maxOpen2)
+		}
+	} else {
+		t.Log("skipping max open files value restoration test, must run as root")
 	}
 }
 

@@ -28,6 +28,7 @@ type Config struct {
 	Priority         int `default:"1000"`
 	Watchdog         *Watchdog
 	WatchdogInterval int `default:"300"`
+	MaxOpenFiles     int
 	Log              *Logger
 	Err              error
 }

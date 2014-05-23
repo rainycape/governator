@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+var (
+	// avoids starting multiple services
+	// at the same time, to enforce resource limits
+	startLock sync.Mutex
+)
+
 type State uint8
 
 const (
@@ -156,9 +162,19 @@ func (s *Service) Run(ch chan<- error) {
 		s.Cmd = cmd
 		s.Started = time.Now()
 		s.infof("starting")
-		if err := s.Cmd.Start(); err != nil {
-			s.errorf("failed to start: %s", err)
-			s.startFailed(&ch, err)
+		startLock.Lock()
+		limits, err := SetLimits(s.Config)
+		if err != nil {
+			s.errorf("error setting service limits: %s", err)
+		}
+		serr := s.Cmd.Start()
+		if err := RestoreLimits(limits); err != nil {
+			s.errorf("error restoring limits: %s", err)
+		}
+		startLock.Unlock()
+		if serr != nil {
+			s.errorf("failed to start: %s", serr)
+			s.startFailed(&ch, serr)
 			s.mu.Unlock()
 			break
 		}
