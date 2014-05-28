@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
+	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,7 +16,16 @@ import (
 
 var (
 	maxOpenRe = regexp.MustCompile("Max open files\\s+(\\d+)")
+	waitPy    = "python " + abs(filepath.Join("_testdata", "wait.py"))
 )
+
+func abs(p string) string {
+	a, err := filepath.Abs(p)
+	if err != nil {
+		panic(err)
+	}
+	return a
+}
 
 func setLogger(t *testing.T, cfg *Config, value string) {
 	cfg.Log = new(Logger)
@@ -24,6 +33,19 @@ func setLogger(t *testing.T, cfg *Config, value string) {
 		t.Fatal(err)
 	}
 }
+
+type bufWriter bytes.Buffer
+
+func (w *bufWriter) Open(_ string) error { return nil }
+
+func (w *bufWriter) Close() error { return nil }
+
+func (w *bufWriter) Write(_ string, b []byte) error {
+	(*bytes.Buffer)(w).Write(b)
+	return nil
+}
+
+func (w *bufWriter) Flush() error { return nil }
 
 func TestService(t *testing.T) {
 	cfg := &Config{
@@ -99,13 +121,17 @@ func TestExitingService(t *testing.T) {
 }
 
 func checkMaxOpenFiles(t *testing.T, s *Service, expect int) {
-	limitsFile := fmt.Sprintf("/proc/%d/limits", s.Cmd.Process.Pid)
-	data, err := ioutil.ReadFile(limitsFile)
-	if err != nil {
-		t.Fatal(err)
+	buf := (*bytes.Buffer)(s.Config.Log.w.(*bufWriter))
+	lines := strings.Split(buf.String(), "\n")
+	var line string
+	for _, v := range lines {
+		if !strings.Contains(v, "start") && !strings.Contains(v, "error") {
+			line = v
+			break
+		}
 	}
-	m := maxOpenRe.FindStringSubmatch(string(data))
-	val, err := strconv.Atoi(m[1])
+	parts := strings.Split(line, "-")
+	val, err := strconv.Atoi(strings.Trim(parts[1], "\n- "))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +151,13 @@ func getMaxOpenFiles(t *testing.T) int {
 func TestServiceMaxOpenFiles(t *testing.T) {
 	maxOpen1 := getMaxOpenFiles(t)
 	cfg := &Config{
-		File:    "/non-existant",
-		Command: "sleep 5000",
-		Name:    "sleep",
+		File:    "wait",
+		Command: waitPy,
+		Name:    "wait",
 	}
 	setLogger(t, cfg, "none")
+	buf := new(bytes.Buffer)
+	cfg.Log.w = (*bufWriter)(buf)
 	s := newService(cfg)
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
@@ -140,6 +168,7 @@ func TestServiceMaxOpenFiles(t *testing.T) {
 	}
 	sMaxOpen := maxOpen1 / 2
 	cfg.MaxOpenFiles = sMaxOpen
+	buf.Reset()
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
