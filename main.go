@@ -67,10 +67,10 @@ func main() {
 			if oe, ok := err.(*net.OpError); ok {
 				switch {
 				case oe.Err == syscall.EACCES:
-					fmt.Fprintf(os.Stderr, "can't connect to governator, permission denied")
+					fmt.Fprint(os.Stderr, "can't connect to governator, permission denied\n")
 					os.Exit(1)
 				case oe.Err == syscall.ENOENT:
-					fmt.Fprintf(os.Stderr, "governator daemon is not running")
+					fmt.Fprint(os.Stderr, "governator daemon is not running\n")
 					os.Exit(1)
 				}
 			}
