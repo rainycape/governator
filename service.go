@@ -181,9 +181,9 @@ func (s *Service) Run(ch chan<- error) {
 		s.mu.Unlock()
 		timer := time.AfterFunc(time.Duration(float64(minTime)*1.1), func() {
 			s.mu.Lock()
-			defer s.mu.Unlock()
 			// Clear any potentially stored errors
 			s.started(&ch)
+			s.mu.Unlock()
 			s.infof("started")
 		})
 		err = s.Cmd.Wait()
