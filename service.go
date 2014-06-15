@@ -100,7 +100,7 @@ func (s *Service) Start() error {
 		return err
 	}
 	if err := s.startWatchdog(); err != nil {
-		s.errorf("error starting watchdog: %s", s.Name(), err)
+		s.errorf("error starting watchdog %s: %s", s.Name(), err)
 	}
 	return nil
 }
