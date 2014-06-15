@@ -76,11 +76,11 @@ func TestService(t *testing.T) {
 		t.Fatal("service is not stopped")
 	}
 	if err := s.Start(); err != nil {
-		t.Fatal("error starting again: %s", err)
+		t.Fatalf("error starting again: %s", err)
 	}
 	// Kill it and check if it's restarted
 	if err := exec.Command("killall", "-9", "sleep").Run(); err != nil {
-		t.Fatal("error killing: %s", err)
+		t.Fatalf("error killing: %s", err)
 	}
 	if s.State != StateStarted {
 		t.Fatal("service is not started")
@@ -91,7 +91,7 @@ func TestService(t *testing.T) {
 	}
 	// Kill it and stop while it's restarting
 	if err := exec.Command("killall", "-9", "sleep").Run(); err != nil {
-		t.Fatal("error killing: %s", err)
+		t.Fatalf("error killing: %s", err)
 	}
 	if err := s.Stop(); err != nil {
 		t.Fatalf("error stopping: %s", err)
