@@ -450,7 +450,6 @@ func daemonMain() error {
 	}
 	servicesByPriority(services.list).Sort()
 	services.Unlock()
-	startServices(nil)
 	quitWatcher := newQuit()
 	if err := startWatching(quitWatcher); err != nil {
 		log.Errorf("error watching %s, configuration won't be automatically updated: %s", servicesDir(), err)
@@ -459,6 +458,7 @@ func daemonMain() error {
 	if err := startServer(quitServer); err != nil {
 		log.Errorf("error starting server, can't receive remote commands: %s", err)
 	}
+	startServices(nil)
 	// Wait for signal
 	<-c
 	quitWatcher.sendStop()
