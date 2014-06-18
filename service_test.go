@@ -82,12 +82,18 @@ func TestService(t *testing.T) {
 	if err := exec.Command("killall", "-9", "sleep").Run(); err != nil {
 		t.Fatalf("error killing: %s", err)
 	}
-	if s.State != StateStarted {
+	s.mu.Lock()
+	state := s.State
+	s.mu.Unlock()
+	if state != StateStarted {
 		t.Fatal("service is not started")
 	}
 	<-s.errCh
-	if s.Restarts != 1 {
-		t.Fatalf("expecting 1 restarts, got %d", s.Restarts)
+	s.mu.Lock()
+	restarts := s.Restarts
+	s.mu.Unlock()
+	if restarts != 1 {
+		t.Fatalf("expecting 1 restarts, got %d", restarts)
 	}
 	// Kill it and stop while it's restarting
 	if err := exec.Command("killall", "-9", "sleep").Run(); err != nil {
