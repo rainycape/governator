@@ -107,7 +107,9 @@ func (s *Service) Start() error {
 
 func (s *Service) startIn(d time.Duration) {
 	s.stopTimer()
-	s.startTimer = time.AfterFunc(d, func() { s.Run(nil) })
+	s.startTimer = time.AfterFunc(d, func() {
+		s.Run(nil)
+	})
 	s.nextStart = time.Now().Add(d)
 }
 
