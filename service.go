@@ -141,77 +141,83 @@ func (s *Service) untilNextRestart() time.Duration {
 
 func (s *Service) Run(ch chan<- error) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.State = StateStarted
-	s.mu.Unlock()
-	for {
+	if s.State != StateStarted {
+		s.sendErr(&ch, nil)
+		return
+	}
+	cmd, err := s.Config.Cmd()
+	if err != nil {
+		s.State = StateFailed
+		s.errorf("could not initialize: %s", err)
+		s.sendErr(&ch, err)
+		return
+	}
+	if s.Config.Log != nil {
+		cmd.Stdout = s.Config.Log.Stdout
+		cmd.Stderr = s.Config.Log.Stderr
+	}
+	s.Cmd = cmd
+	s.Started = time.Now()
+	s.infof("starting")
+	startLock.Lock()
+	limits, err := SetLimits(s.Config)
+	if err != nil {
+		s.errorf("error setting service limits: %s", err)
+	}
+	startLock.Unlock()
+	serr := s.Cmd.Start()
+	if err := RestoreLimits(limits); err != nil {
+		s.errorf("error restoring limits: %s", err)
+	}
+	if serr != nil {
+		s.errorf("failed to start: %s", serr)
+		s.startFailed(&ch, serr)
+		return
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(minTime, func() {
 		s.mu.Lock()
-		if s.State != StateStarted {
-			s.mu.Unlock()
-			break
+		defer s.mu.Unlock()
+		if timer == nil {
+			return
 		}
-		cmd, err := s.Config.Cmd()
-		if err != nil {
-			s.State = StateFailed
-			s.errorf("could not initialize: %s", err)
-			s.sendErr(&ch, err)
-			s.mu.Unlock()
-			break
-		}
-		if s.Config.Log != nil {
-			cmd.Stdout = s.Config.Log.Stdout
-			cmd.Stderr = s.Config.Log.Stderr
-		}
-		s.Cmd = cmd
-		s.Started = time.Now()
-		s.infof("starting")
-		startLock.Lock()
-		limits, err := SetLimits(s.Config)
-		if err != nil {
-			s.errorf("error setting service limits: %s", err)
-		}
-		serr := s.Cmd.Start()
-		if err := RestoreLimits(limits); err != nil {
-			s.errorf("error restoring limits: %s", err)
-		}
-		startLock.Unlock()
-		if serr != nil {
-			s.errorf("failed to start: %s", serr)
-			s.startFailed(&ch, serr)
-			s.mu.Unlock()
-			break
-		}
-		s.mu.Unlock()
-		timer := time.AfterFunc(time.Duration(float64(minTime)*1.1), func() {
-			s.mu.Lock()
-			// Clear any potentially stored errors
-			s.started(&ch)
-			s.mu.Unlock()
-			s.infof("started")
-		})
-		err = s.Cmd.Wait()
-		timer.Stop()
+		timer = nil
+		// Clear any potentially stored errors
+		s.started(&ch)
+		s.infof("started")
+	})
+
+	go func() {
+		err := s.Cmd.Wait()
 		s.mu.Lock()
+		defer s.mu.Unlock()
+		if timer != nil {
+			// Consider failure, no mintime has passed
+			timer.Stop()
+			timer = nil
+			since := time.Since(s.Started)
+			s.startFailed(&ch, fmt.Errorf("exited too fast (%s)", since))
+			return
+		}
 		if s.State != StateStarted {
 			s.Cmd = nil
 			s.sendErr(&ch, err)
 			s.stopCh <- nil
-			s.mu.Unlock()
-			break
-		}
-		if since := time.Since(s.Started); since < minTime {
-			// Consider failure
-			s.startFailed(&ch, fmt.Errorf("exited too fast (%s)", since))
-			s.mu.Unlock()
-			break
+			return
 		}
 		s.Restarts++
-		s.mu.Unlock()
 		if err != nil {
 			s.infof("exited with error %s - restarting", err)
 		} else {
 			s.infof("exited without error - restarting")
 		}
-	}
+		// Spawn a goroutine so this function ends and
+		// the lock is released before Run() is executed
+		// again.
+		go s.Run(ch)
+	}()
 }
 
 func (s *Service) Stop() error {
@@ -263,7 +269,7 @@ func (s *Service) stopTimer() {
 func (s *Service) startService() error {
 	ch := make(chan error)
 	s.stopTimerLocking()
-	go s.Run(ch)
+	s.Run(ch)
 	err := <-ch
 	close(ch)
 	return err
