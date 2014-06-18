@@ -9,7 +9,11 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
 	"strings"
+
+	"gopkgs.com/dl.v1"
 )
 
 const help = `available commands are:
@@ -85,21 +89,22 @@ func evalCommand(args []string) (bool, error) {
 }
 
 func clientMain(args []string) (bool, error) {
+	createGovernatorUserDir()
 	if len(args) > 0 {
 		return evalCommand(args)
 	}
-	r := bufio.NewReader(os.Stdin)
+	r := newLineReader()
 	fmt.Printf("%s interactive shell\nType exit or press control+d to end\nType help to show available commands\n\n", AppName)
 	sendCommand([]string{"list"})
 	for {
-		fmt.Printf("%s> ", AppName)
-		s, err := r.ReadString('\n')
+		s, err := r.ReadLine()
 		if err == io.EOF {
 			fmt.Print("exit\n")
 			break
 		}
 		s = strings.TrimSpace(s)
 		if s != "" {
+			r.AddHistory(s)
 			fields, err := stringutil.SplitFields(s, " ")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error reading input: %s\n", err)
@@ -111,4 +116,108 @@ func clientMain(args []string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func governatorUserDir() (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(usr.HomeDir, "."+AppName), nil
+}
+
+func createGovernatorUserDir() error {
+	dir, err := governatorUserDir()
+	if err != nil {
+		return err
+	}
+	return os.Mkdir(dir, 0755)
+}
+
+var (
+	readline      func(string) *string
+	add_history   func(string)
+	read_history  func(string)
+	write_history func(string)
+)
+
+type lineReader interface {
+	ReadLine() (string, error)
+	AddHistory(s string)
+}
+
+type bufLineReader struct {
+	r *bufio.Reader
+}
+
+func (r *bufLineReader) ReadLine() (string, error) {
+	fmt.Printf("%s> ", AppName)
+	return r.r.ReadString('\n')
+}
+
+func (r *bufLineReader) AddHistory(_ string) {
+}
+
+func newLineReader() lineReader {
+	if readline != nil {
+		r := &readlineLineReader{}
+		r.readHistory()
+		return r
+	}
+	return &bufLineReader{
+		r: bufio.NewReader(os.Stdin),
+	}
+}
+
+type readlineLineReader struct {
+}
+
+func (r *readlineLineReader) historyFile() (string, error) {
+	dir, err := governatorUserDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "history"), nil
+}
+
+func (r *readlineLineReader) readHistory() error {
+	if read_history != nil {
+		file, err := r.historyFile()
+		if err != nil {
+			return err
+		}
+		read_history(file)
+	}
+	return nil
+}
+
+func (r *readlineLineReader) ReadLine() (string, error) {
+	s := readline(fmt.Sprintf("%s> ", AppName))
+	if s == nil {
+		return "", io.EOF
+	}
+	return *s, nil
+}
+
+func (r *readlineLineReader) AddHistory(s string) {
+	if add_history != nil {
+		add_history(s)
+		if write_history != nil {
+			file, err := r.historyFile()
+			if err != nil {
+				return
+			}
+			write_history(file)
+		}
+	}
+}
+
+func init() {
+	lib, _ := dl.Open("libreadline", 0)
+	if lib != nil {
+		lib.Sym("readline", &readline)
+		lib.Sym("add_history", &add_history)
+		lib.Sym("read_history", &read_history)
+		lib.Sym("write_history", &write_history)
+	}
 }
