@@ -54,14 +54,14 @@ type Writer interface {
 	Flush() error
 }
 
-type Monitor func(string, []byte)
+type LogMonitor func(string, []byte)
 
 type Logger struct {
 	Name    string
 	w       Writer
 	Stdout  *Out
 	Stderr  *Out
-	Monitor Monitor
+	Monitor LogMonitor
 	buf     []byte
 	mu      sync.Mutex
 }
