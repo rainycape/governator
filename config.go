@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	"gnd.la/config"
-	"gnd.la/log"
-	"gnd.la/util/stringutil"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -14,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"gnd.la/config"
+	"gnd.la/log"
+	"gnd.la/util/stringutil"
 )
 
 type Config struct {

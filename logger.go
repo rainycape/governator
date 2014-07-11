@@ -3,13 +3,14 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"gnd.la/util/parseutil"
-	"gnd.la/util/stringutil"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"gnd.la/util/parseutil"
+	"gnd.la/util/stringutil"
 )
 
 const (

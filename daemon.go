@@ -2,10 +2,8 @@ package main
 
 import (
 	"bytes"
-	"code.google.com/p/go.exp/fsnotify"
 	"errors"
 	"fmt"
-	"gnd.la/log"
 	"net"
 	"os"
 	"os/signal"
@@ -17,6 +15,9 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+
+	"code.google.com/p/go.exp/fsnotify"
+	"gnd.la/log"
 )
 
 func formatTime(t time.Time) string {

@@ -1,11 +1,12 @@
 package main
 
 import (
-	"gnd.la/log"
 	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
+
+	"gnd.la/log"
 )
 
 func writeText(t *testing.T, w *fileWriter) {

@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"gnd.la/log"
 	"net"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"gnd.la/log"
 )
 
 var (

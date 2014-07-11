@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"gnd.la/log"
 	"math"
 	"os"
 	"os/exec"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"gnd.la/log"
 )
 
 var (

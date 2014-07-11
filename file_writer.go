@@ -4,11 +4,12 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	"gnd.la/log"
 	"io"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"gnd.la/log"
 )
 
 type fileWriter struct {
