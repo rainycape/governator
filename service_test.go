@@ -114,7 +114,7 @@ func TestExitingService(t *testing.T) {
 	s := newService(cfg)
 	err := s.Start()
 	if err == nil || !strings.Contains(err.Error(), "too fast") {
-		t.Fatalf("expecting error due to fast exit, got %s instead", err)
+		t.Fatalf("expecting error due to fast exit, got %v instead", err)
 	}
 	if err := s.Stop(); err != nil {
 		t.Fatalf("error stopping backoff service: %s", err)
