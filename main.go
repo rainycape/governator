@@ -59,8 +59,14 @@ func main() {
 	case *testConfig:
 		testConfigurations()
 	case *daemon:
-		if err := daemonMain(); err != nil {
+		g, err := NewGovernator()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error initializing daemon: %s\n", err)
+			os.Exit(1)
+		}
+		if err := g.Main(); err != nil {
 			fmt.Fprintf(os.Stderr, "error starting daemon: %s\n", err)
+			os.Exit(1)
 		}
 	default:
 		ok, err := clientMain(flag.Args())
