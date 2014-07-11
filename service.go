@@ -167,8 +167,8 @@ func (s *Service) Run(ch chan<- error) {
 	if err != nil {
 		s.errorf("error setting service limits: %s", err)
 	}
-	startLock.Unlock()
 	serr := s.Cmd.Start()
+	startLock.Unlock()
 	if err := RestoreLimits(limits); err != nil {
 		s.errorf("error restoring limits: %s", err)
 	}
