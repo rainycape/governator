@@ -3,8 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"gnd.la/log"
-	"gnd.la/util/stringutil"
 	"io"
 	"net"
 	"os"
@@ -12,6 +10,9 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+
+	"gnd.la/log"
+	"gnd.la/util/stringutil"
 
 	"gopkgs.com/dl.v1"
 )
@@ -213,7 +214,13 @@ func (r *readlineLineReader) AddHistory(s string) {
 }
 
 func init() {
-	lib, _ := dl.Open("libreadline", 0)
+	var lib *dl.DL
+	for _, v := range []string{"", dl.LibExt + ".5", dl.LibExt + ".6"} {
+		lib, _ = dl.Open("libreadline"+v, 0)
+		if lib != nil {
+			break
+		}
+	}
 	if lib != nil {
 		lib.Sym("readline", &readline)
 		lib.Sym("add_history", &add_history)
