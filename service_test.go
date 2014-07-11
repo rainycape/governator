@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +31,7 @@ func abs(p string) string {
 
 func setLogger(t *testing.T, cfg *Config, value string) {
 	cfg.Log = new(Logger)
+	cfg.Log.Name = cfg.Name
 	if err := cfg.Log.Parse(value); err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +193,47 @@ func TestServiceMaxOpenFiles(t *testing.T) {
 	} else {
 		t.Log("skipping max open files value restoration test, must run as root")
 	}
+}
+
+func countThreads() (int, error) {
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("ps -eLf|awk '{print $2}' |grep %d |wc -l", os.Getpid()))
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(stdout.String()))
+}
+
+func TestThreads(t *testing.T) {
+	const (
+		numServices = 10
+	)
+	cfg := &Config{
+		File:    "sleep",
+		Command: "sleep 5000",
+	}
+	srvs := make([]*Service, numServices)
+	for ii := range srvs {
+		c := *cfg
+		c.Name = fmt.Sprintf("%s-%d", c.File, ii)
+		setLogger(t, &c, "file")
+		srvs[ii] = newService(&c)
+	}
+	for _, v := range srvs {
+		if err := v.Start(); err != nil {
+			time.Sleep(5 * time.Second)
+			t.Fatal(err)
+		}
+	}
+	threads, err := countThreads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%d threads, %d goroutines", threads, runtime.NumGoroutine())
+	stack := make([]byte, 1024*100)
+	stack = stack[:runtime.Stack(stack, true)]
+	t.Logf("STACK:\n %s", string(stack))
 }
 
 func init() {
