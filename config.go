@@ -116,9 +116,21 @@ func (c *Config) ServiceName() string {
 	return c.File
 }
 
-func ParseConfig(filename string) *Config {
+func (g *Governator) servicesDir() string {
+	return filepath.Join(g.configDir, "services")
+}
+
+func (g *Governator) servicePath(filename string) string {
+	return filepath.Join(g.servicesDir(), filename)
+}
+
+func (g *Governator) configDirIsDefault() bool {
+	return g.configDir == defaultConfigDir
+}
+
+func (g *Governator) parseConfig(filename string) *Config {
 	cfg := &Config{File: filename}
-	err := config.ParseFile(filepath.Join(servicesDir(), filename), cfg)
+	err := config.ParseFile(g.servicePath(filename), cfg)
 	cfg.Err = err
 	if cfg.Log == nil {
 		cfg.Log = new(Logger)
@@ -128,9 +140,9 @@ func ParseConfig(filename string) *Config {
 	return cfg
 }
 
-func ParseConfigs() ([]*Config, error) {
-	dir := servicesDir()
-	if configDirIsDefault() {
+func (g *Governator) parseConfigs() ([]*Config, error) {
+	dir := g.servicesDir()
+	if g.configDirIsDefault() {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("error creating services directory %s: %s", dir, err)
 		}
@@ -142,22 +154,22 @@ func ParseConfigs() ([]*Config, error) {
 	var configs []*Config
 	for _, v := range files {
 		name := v.Name()
-		if shouldIgnoreFile(name, false) {
+		if g.shouldIgnoreFile(name, false) {
 			continue
 		}
-		cfg := ParseConfig(name)
+		cfg := g.parseConfig(name)
 		log.Debugf("Parsed config %s: %+v", name, cfg)
 		configs = append(configs, cfg)
 	}
 	return configs, nil
 }
 
-func shouldIgnoreFile(name string, deleted bool) bool {
+func (g *Governator) shouldIgnoreFile(name string, deleted bool) bool {
 	if name == "" || name[0] == '.' || strings.HasSuffix(name, "~") {
 		return true
 	}
 	if !deleted {
-		info, err := os.Stat(filepath.Join(servicesDir(), name))
+		info, err := os.Stat(g.servicePath(name))
 		if err != nil || info.Size() == 0 || info.IsDir() {
 			return true
 		}

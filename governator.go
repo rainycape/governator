@@ -4,12 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"os/signal"
-	"os/user"
+
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"code.google.com/p/go.exp/fsnotify"
@@ -25,12 +22,20 @@ var (
 )
 
 type Governator struct {
-	mu       sync.Mutex
-	services []*Service
+	ServerAddr string
+	mu         sync.Mutex
+	services   []*Service
+	configDir  string
+	quit       *quit
+	quits      []*quit
+	monitor    *Monitor
 }
 
-func NewGovernator() (*Governator, error) {
-	return &Governator{}, nil
+func NewGovernator(configDir string) (*Governator, error) {
+	return &Governator{
+		configDir: configDir,
+		monitor:   &Monitor{quit: newQuit()},
+	}, nil
 }
 
 func (g *Governator) ensureUniqueName(cfg *Config) {
@@ -62,7 +67,9 @@ func (g *Governator) serviceByFilename(name string) (int, *Service) {
 	return -1, nil
 }
 
-func (g *Governator) startWatching(q *quit) error {
+func (g *Governator) startWatching() error {
+	q := newQuit()
+	g.quits = append(g.quits, q)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -74,27 +81,30 @@ func (g *Governator) startWatching(q *quit) error {
 			case ev := <-watcher.Event:
 				log.Debugf("file watcher event %s", ev)
 				name := filepath.Base(ev.Name)
-				if shouldIgnoreFile(name, ev.IsDelete() || ev.IsRename()) {
+				if g.shouldIgnoreFile(name, ev.IsDelete() || ev.IsRename()) {
 					break
 				}
 				g.mu.Lock()
 				switch {
 				case ev.IsCreate():
-					cfg := ParseConfig(name)
+					cfg := g.parseConfig(name)
 					// If a file is moved or copied over an already existing
 					// service configuration, we only receive a CREATE. Check
 					// if we already have a configuration with that name and, in
 					// that case, stop it, update its config and restart.
 					if _, s := g.serviceByFilename(name); s != nil {
 						s.updateConfig(cfg)
-						servicesByPriority(g.services).Sort()
-					} else {
-						g.ensureUniqueName(cfg)
-						log.Debugf("added service %s", cfg.ServiceName())
-						s := newService(cfg)
-						g.services = append(g.services, s)
-						servicesByPriority(g.services).Sort()
+						g.sortServices()
+						s.Stop()
 						s.Start()
+					} else {
+						name, err := g.AddService(cfg)
+						if err != nil {
+							log.Errorf("error adding service %s: %s", cfg.ServiceName(), err)
+						} else if cfg.Start {
+							s, _ := g.serviceByName(name)
+							s.Start()
+						}
 					}
 				case ev.IsDelete() || ev.IsRename():
 					if ii, s := g.serviceByFilename(name); s != nil {
@@ -106,9 +116,9 @@ func (g *Governator) startWatching(q *quit) error {
 					}
 				case ev.IsModify():
 					if _, s := g.serviceByFilename(name); s != nil {
-						cfg := ParseConfig(name)
+						cfg := g.parseConfig(name)
 						s.updateConfig(cfg)
-						servicesByPriority(g.services).Sort()
+						g.sortServices()
 					}
 				default:
 					log.Errorf("unhandled event: %s\n", ev)
@@ -123,7 +133,7 @@ func (g *Governator) startWatching(q *quit) error {
 			}
 		}
 	}()
-	if err := watcher.Watch(servicesDir()); err != nil {
+	if err := watcher.Watch(g.servicesDir()); err != nil {
 		return err
 	}
 	return nil
@@ -144,7 +154,7 @@ func (g *Governator) startServiceLocked(conn net.Conn, s *Service) error {
 	return encodeResponse(conn, respOk, fmt.Sprintf("started %s\n", name))
 }
 
-func (g *Governator) startServices(conn net.Conn) {
+func (g *Governator) startServices(conn net.Conn) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	for _, s := range g.services {
@@ -152,6 +162,7 @@ func (g *Governator) startServices(conn net.Conn) {
 			g.startServiceLocked(conn, s)
 		}
 	}
+	return nil
 }
 
 func (g *Governator) stopService(conn net.Conn, s *Service) (bool, error) {
@@ -169,61 +180,136 @@ func (g *Governator) stopServiceLocked(conn net.Conn, s *Service) (bool, error) 
 	return true, encodeResponse(conn, respOk, fmt.Sprintf("stopped %s\n", name))
 }
 
-func (g *Governator) stopServices(conn net.Conn) {
+func (g *Governator) stopServices(conn net.Conn) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	// Stop in reverse order, to respect priorities
 	for ii := len(g.services) - 1; ii >= 0; ii-- {
 		s := g.services[ii]
-		g.stopServiceLocked(conn, s)
+		if _, err := g.stopServiceLocked(conn, s); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func (g *Governator) sortServices() {
+	servicesByPriority(g.services).Sort()
+}
+
+func (g *Governator) serviceByName(name string) (*Service, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, v := range g.services {
+		if v.Name() == name {
+			return v, nil
+		}
+	}
+	return nil, fmt.Errorf("no service named %s", name)
+}
+
+func (g *Governator) AddService(cfg *Config) (string, error) {
+	cpy := *cfg
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.ensureUniqueName(&cpy)
+	s := newService(&cpy)
+	s.monitor = g.monitor
+	g.services = append(g.services, s)
+	g.sortServices()
+	return cpy.Name, nil
+}
+
+func (g *Governator) Start(name string) error {
+	if name == "all" {
+		return g.startServices(nil)
+	}
+	s, err := g.serviceByName(name)
+	if err != nil {
+		return err
+	}
+	return s.Start()
+}
+
+func (g *Governator) Stop(name string) error {
+	if name == "all" {
+		return g.stopServices(nil)
+	}
+	s, err := g.serviceByName(name)
+	if err != nil {
+		return err
+	}
+	return s.Stop()
+}
+
+func (g *Governator) State(name string) (State, error) {
+	s, err := g.serviceByName(name)
+	if err != nil {
+		return 0, err
+	}
+	return s.State, nil
 }
 
 func (g *Governator) LoadServices() error {
-	configs, err := ParseConfigs()
+	configs, err := g.parseConfigs()
 	if err != nil {
 		return err
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	for _, v := range configs {
-		g.ensureUniqueName(v)
-		s := newService(v)
-		g.services = append(g.services, s)
+		g.AddService(v)
 	}
 	return nil
 }
 
-func (g *Governator) Main() error {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Signal(syscall.SIGTERM), os.Kill)
-	u, err := user.Current()
-	if err != nil {
-		return err
-	}
-	if u.Uid != "0" {
-		return errors.New("govenator daemon must be run as root")
-	}
+func (g *Governator) Run() error {
 	g.mu.Lock()
-	servicesByPriority(g.services).Sort()
-	g.mu.Unlock()
-	quitWatcher := newQuit()
-	if err := g.startWatching(quitWatcher); err != nil {
-		log.Errorf("error watching %s, configuration won't be automatically updated: %s", servicesDir(), err)
+	if g.quit != nil {
+		g.mu.Unlock()
+		return errors.New("governator already running")
 	}
-	quitServer := newQuit()
-	if err := g.startServer(quitServer); err != nil {
-		log.Errorf("error starting server, can't receive remote commands: %s", err)
+	g.quit = newQuit()
+	g.mu.Unlock()
+	go g.monitor.Run()
+	if g.configDir != "" {
+		if err := g.startWatching(); err != nil {
+			log.Errorf("error watching %s, configuration won't be automatically updated: %s", g.servicesDir(), err)
+		}
+	}
+	if g.ServerAddr != "" {
+		if err := g.startServer(); err != nil {
+			log.Errorf("error starting server, can't receive remote commands: %s", err)
+		}
 	}
 	g.startServices(nil)
-	// Wait for signal
-	<-c
-	quitWatcher.sendStop()
-	quitServer.sendStop()
+	g.quit.waitForStop()
+	g.mu.Lock()
+	for _, q := range g.quits {
+		q.sendStop()
+	}
 	// Wait for goroutines to exit cleanly
-	<-quitWatcher.stopped
-	<-quitServer.stopped
+	for _, q := range g.quits {
+		q.waitForStopped()
+	}
+	g.quits = nil
+	g.mu.Unlock()
+	// Release the lock for stopServices
 	g.stopServices(nil)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.monitor.quit.sendStop()
+	g.monitor.quit.waitForStopped()
 	log.Debugf("daemon exiting")
+	g.quit.sendStopped()
+	g.quit = nil
 	return nil
+}
+
+func (g *Governator) StopRunning() {
+	g.mu.Lock()
+	quit := g.quit
+	g.mu.Unlock()
+	if quit != nil {
+		quit.sendStop()
+		quit.waitForStopped()
+	}
 }

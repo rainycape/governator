@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
+	"net/url"
+	"strings"
 )
 
 const (
-	SocketPath = "/tmp/governator.sock"
+	socketPath = "/tmp/governator.sock"
 	AppName    = "governator"
 )
 
@@ -95,4 +98,14 @@ func codecRead(r io.Reader, out interface{}) error {
 
 func codecWrite(w io.Writer, in interface{}) error {
 	return binary.Write(w, binary.BigEndian, in)
+}
+
+func parseServerAddr(addr string) (string, string, error) {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid server URL %q: %s", addr, err)
+	}
+	scheme := u.Scheme
+	u.Scheme = ""
+	return scheme, strings.TrimPrefix("//", u.String()), nil
 }

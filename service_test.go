@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"gnd.la/log"
 )
 
 var (
@@ -50,35 +52,62 @@ func (w *bufWriter) Write(_ string, b []byte) error {
 
 func (w *bufWriter) Flush() error { return nil }
 
+func prepareGovernatorTest(t testing.TB) *Governator {
+	if testing.Verbose() {
+		log.SetLevel(log.LDebug)
+	}
+	g, err := NewGovernator("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		if err := g.Run(); err != nil {
+			t.Fatal("error running goernator: %s", err)
+		}
+	}()
+	return g
+}
+
+func afterGovernatorTest(t testing.TB, g *Governator) {
+	g.StopRunning()
+}
+
 func TestService(t *testing.T) {
+	g := prepareGovernatorTest(t)
+	defer afterGovernatorTest(t, g)
 	cfg := &Config{
 		File:    "/non-existant",
 		Command: "sleep 50000",
 		Name:    "sleep",
 	}
-	setLogger(t, cfg, "file")
-	s := newService(cfg)
-	s.errCh = make(chan error)
+	name, err := g.AddService(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		go func() {
 			// This goroutine starts after s.Start() is called.
-			if err := s.Stop(); err != nil {
+			if err := g.Stop(name); err != nil {
 				t.Fatalf("error stopping: %s", err)
 			}
 			wg.Done()
 		}()
-		if err := s.Start(); err != nil {
+		if err := g.Start(name); err != nil {
 			t.Fatalf("error starting: %s", err)
 		}
 		wg.Done()
 	}()
 	wg.Wait()
+	s, err := g.serviceByName(name)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if s.State != StateStopped {
 		t.Fatal("service is not stopped")
 	}
-	if err := s.Start(); err != nil {
+	if err := g.Start(name); err != nil {
 		t.Fatalf("error starting again: %s", err)
 	}
 	// Kill it and check if it's restarted
@@ -91,7 +120,7 @@ func TestService(t *testing.T) {
 	if state != StateStarted {
 		t.Fatal("service is not started")
 	}
-	<-s.errCh
+	time.Sleep(1 * time.Second)
 	s.mu.Lock()
 	restarts := s.Restarts
 	s.mu.Unlock()
@@ -102,25 +131,33 @@ func TestService(t *testing.T) {
 	if err := exec.Command("killall", "-9", "sleep").Run(); err != nil {
 		t.Fatalf("error killing: %s", err)
 	}
-	if err := s.Stop(); err != nil {
+	if err := g.Stop(name); err != nil {
 		t.Fatalf("error stopping: %s", err)
 	}
 }
 
 func TestExitingService(t *testing.T) {
+	g := prepareGovernatorTest(t)
+	defer afterGovernatorTest(t, g)
 	cfg := &Config{
 		File:    "/non-existant",
 		Command: "true",
 		Name:    "true",
 	}
-	setLogger(t, cfg, "none")
-	s := newService(cfg)
-	err := s.Start()
+	name, err := g.AddService(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = g.Start(name)
 	if err == nil || !strings.Contains(err.Error(), "too fast") {
 		t.Fatalf("expecting error due to fast exit, got %v instead", err)
 	}
-	if err := s.Stop(); err != nil {
+	if err := g.Stop(name); err != nil {
 		t.Fatalf("error stopping backoff service: %s", err)
+	}
+	s, err := g.serviceByName(name)
+	if err != nil {
+		t.Fatal(err)
 	}
 	// Wait until the next restart and make sure it doesn't happen
 	time.Sleep(s.untilNextRestart() + time.Second)
@@ -158,6 +195,8 @@ func getMaxOpenFiles(t *testing.T) int {
 }
 
 func TestServiceMaxOpenFiles(t *testing.T) {
+	g := prepareGovernatorTest(t)
+	defer afterGovernatorTest(t, g)
 	maxOpen1 := getMaxOpenFiles(t)
 	cfg := &Config{
 		File:    "wait",
@@ -167,22 +206,29 @@ func TestServiceMaxOpenFiles(t *testing.T) {
 	setLogger(t, cfg, "none")
 	buf := new(bytes.Buffer)
 	cfg.Log.w = (*bufWriter)(buf)
-	s := newService(cfg)
-	if err := s.Start(); err != nil {
+	name, err := g.AddService(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := g.serviceByName(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(name); err != nil {
 		t.Fatal(err)
 	}
 	checkMaxOpenFiles(t, s, maxOpen1)
-	if err := s.Stop(); err != nil {
+	if err := g.Stop(name); err != nil {
 		t.Fatal(err)
 	}
 	sMaxOpen := maxOpen1 / 2
-	cfg.MaxOpenFiles = sMaxOpen
 	buf.Reset()
-	if err := s.Start(); err != nil {
+	s.Config.MaxOpenFiles = sMaxOpen
+	if err := g.Start(name); err != nil {
 		t.Fatal(err)
 	}
 	checkMaxOpenFiles(t, s, sMaxOpen)
-	if err := s.Stop(); err != nil {
+	if err := g.Stop(name); err != nil {
 		t.Fatal(err)
 	}
 	if os.Geteuid() == 0 {
@@ -210,30 +256,28 @@ func TestThreads(t *testing.T) {
 		numServices = 10
 	)
 	cfg := &Config{
-		File:    "sleep",
-		Command: "sleep 5000",
+		Command: "yes",
+		Name:    "test",
+		Start:   true,
 	}
-	srvs := make([]*Service, numServices)
-	for ii := range srvs {
-		c := *cfg
-		c.Name = fmt.Sprintf("%s-%d", c.File, ii)
-		setLogger(t, &c, "file")
-		srvs[ii] = newService(&c)
-	}
-	for _, v := range srvs {
-		if err := v.Start(); err != nil {
-			time.Sleep(5 * time.Second)
+	g := prepareGovernatorTest(t)
+	defer afterGovernatorTest(t, g)
+	for ii := 0; ii < numServices; ii++ {
+		if _, err := g.AddService(cfg); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := g.Start("all"); err != nil {
+		t.Fatal(err)
 	}
 	threads, err := countThreads()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%d threads, %d goroutines", threads, runtime.NumGoroutine())
+	fmt.Printf("%d threads, %d goroutines\n", threads, runtime.NumGoroutine())
 	stack := make([]byte, 1024*100)
 	stack = stack[:runtime.Stack(stack, true)]
-	t.Logf("STACK:\n %s", string(stack))
+	fmt.Printf("STACK:\n %s\n", string(stack))
 }
 
 func init() {

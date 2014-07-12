@@ -45,19 +45,21 @@ const (
 )
 
 type Service struct {
-	mu         sync.Mutex // protects access to the fields
-	st         sync.Mutex // prevents start/stop from running concurrently
-	Config     *Config
-	Cmd        *exec.Cmd
-	State      State
-	Started    time.Time
-	Restarts   int
-	Err        error
-	stopCh     chan error
-	errCh      chan error
-	retries    int
-	startTimer *time.Timer
-	nextStart  time.Time
+	mu           sync.Mutex // protects access to the fields
+	st           sync.Mutex // prevents start/stop from running concurrently
+	Config       *Config
+	Cmd          *exec.Cmd
+	State        State
+	Started      time.Time
+	Restarts     int
+	Err          error
+	stopCh       chan error
+	errCh        chan error
+	retries      int
+	startTimer   *time.Timer
+	nextStart    time.Time
+	monitor      *Monitor
+	startedTimer *time.Timer
 }
 
 func newService(cfg *Config) *Service {
@@ -94,8 +96,10 @@ func (s *Service) Start() error {
 	if s.State.isRunState() {
 		return nil
 	}
-	if err := s.Config.Log.Open(); err != nil {
-		return err
+	if s.Config.Log != nil {
+		if err := s.Config.Log.Open(); err != nil {
+			return err
+		}
 	}
 	if err := s.startService(); err != nil {
 		return err
@@ -155,56 +159,56 @@ func (s *Service) Run(ch chan<- error) {
 		s.sendErr(&ch, err)
 		return
 	}
-	if s.Config.Log != nil {
-		cmd.Stdout = s.Config.Log.Stdout
-		cmd.Stderr = s.Config.Log.Stderr
-	}
 	s.Cmd = cmd
 	s.Started = time.Now()
 	s.infof("starting")
-	startLock.Lock()
-	limits, err := SetLimits(s.Config)
 	if err != nil {
 		s.errorf("error setting service limits: %s", err)
 	}
-	serr := s.Cmd.Start()
-	startLock.Unlock()
+	s.startedTimer = time.AfterFunc(minTime, func() {
+		s.afterStarted(&ch)
+	})
+	startLock.Lock()
+	limits, err := SetLimits(s.Config)
+	serr := s.monitor.Start(s.Cmd, s.Config.Log, s.exited(&ch))
 	if err := RestoreLimits(limits); err != nil {
 		s.errorf("error restoring limits: %s", err)
 	}
+	startLock.Unlock()
 	if serr != nil {
 		s.errorf("failed to start: %s", serr)
 		s.startFailed(&ch, serr)
 		return
 	}
-	var timer *time.Timer
-	timer = time.AfterFunc(minTime, func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if timer == nil {
-			return
-		}
-		timer = nil
-		// Clear any potentially stored errors
-		s.started(&ch)
-		s.infof("started")
-	})
+}
 
-	go func() {
-		err := s.Cmd.Wait()
+func (s *Service) afterStarted(ch *chan<- error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.startedTimer == nil {
+		return
+	}
+	s.startedTimer = nil
+	// Clear any potentially stored errors
+	s.started(ch)
+	s.infof("started")
+}
+
+func (s *Service) exited(ch *chan<- error) func(error) {
+	return func(err error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if timer != nil {
+		if s.startedTimer != nil {
 			// Consider failure, no mintime has passed
-			timer.Stop()
-			timer = nil
+			s.startedTimer.Stop()
+			s.startedTimer = nil
 			since := time.Since(s.Started)
-			s.startFailed(&ch, fmt.Errorf("exited too fast (%s)", since))
+			s.startFailed(ch, fmt.Errorf("exited too fast (%s)", since))
 			return
 		}
 		if s.State != StateStarted {
 			s.Cmd = nil
-			s.sendErr(&ch, err)
+			s.sendErr(ch, err)
 			s.stopCh <- nil
 			return
 		}
@@ -217,8 +221,8 @@ func (s *Service) Run(ch chan<- error) {
 		// Spawn a goroutine so this function ends and
 		// the lock is released before Run() is executed
 		// again.
-		go s.Run(ch)
-	}()
+		go s.Run(*ch)
+	}
 }
 
 func (s *Service) Stop() error {

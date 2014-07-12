@@ -1,32 +1,28 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"os/user"
 	"syscall"
 
 	"gnd.la/log"
 )
 
 var (
-	daemon            = flag.Bool("D", false, "Run in daemon mode")
-	debug             = flag.Bool("d", false, "Enable debug logging")
-	testConfig        = flag.Bool("t", false, "Test configuration files")
 	defaultConfigDir  = fmt.Sprintf("/etc/%s", AppName)
-	configDir         = flag.String("c", defaultConfigDir, "Configuration directory")
-	printVersion      = flag.Bool("V", false, "Print version and exit")
 	governatorVersion = "1.0"
 	gitVersion        = ""
 )
 
-func testConfigurations() {
-	configs, err := ParseConfigs()
+func testConfigurations(g *Governator) {
+	configs, err := g.parseConfigs()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		die(err)
 	}
 	ok := true
 	for _, v := range configs {
@@ -40,15 +36,20 @@ func testConfigurations() {
 	}
 }
 
-func servicesDir() string {
-	return filepath.Join(*configDir, "services")
-}
-
-func configDirIsDefault() bool {
-	return *configDir == defaultConfigDir
+func die(err error) {
+	fmt.Fprintf(os.Stderr, "%s\n", err)
+	os.Exit(1)
 }
 
 func main() {
+	var (
+		daemon       = flag.Bool("D", false, "Run in daemon mode")
+		debug        = flag.Bool("d", false, "Enable debug logging")
+		testConfig   = flag.Bool("t", false, "Test configuration files")
+		configDir    = flag.String("c", defaultConfigDir, "Configuration directory")
+		serverAddr   = flag.String("daemon", "unix://"+socketPath, "Daemon URL to listen on in daemon mode or to connect to in client mode")
+		printVersion = flag.Bool("V", false, "Print version and exit")
+	)
 	flag.Parse()
 	if *debug {
 		log.SetLevel(log.LDebug)
@@ -57,19 +58,36 @@ func main() {
 	case *printVersion:
 		fmt.Println(governatorVersion, gitVersion)
 	case *testConfig:
-		testConfigurations()
-	case *daemon:
-		g, err := NewGovernator()
+		g, err := NewGovernator(*configDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error initializing daemon: %s\n", err)
-			os.Exit(1)
+			die(fmt.Errorf("error initializing daemon: %s", err))
 		}
-		if err := g.Main(); err != nil {
-			fmt.Fprintf(os.Stderr, "error starting daemon: %s\n", err)
-			os.Exit(1)
+		testConfigurations(g)
+	case *daemon:
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt, os.Signal(syscall.SIGTERM), os.Kill)
+		u, err := user.Current()
+		if err != nil {
+			die(err)
+		}
+		if u.Uid != "0" {
+			die(errors.New("govenator daemon must be run as root"))
+		}
+		g, err := NewGovernator(*configDir)
+		if err != nil {
+			die(fmt.Errorf("error initializing daemon: %s", err))
+		}
+		g.ServerAddr = *serverAddr
+		go func() {
+			// Wait for signal
+			<-c
+			g.StopRunning()
+		}()
+		if err := g.Run(); err != nil {
+			die(fmt.Errorf("error starting daemon: %s", err))
 		}
 	default:
-		ok, err := clientMain(flag.Args())
+		ok, err := clientMain(*serverAddr, flag.Args())
 		if err != nil {
 			if oe, ok := err.(*net.OpError); ok {
 				switch {

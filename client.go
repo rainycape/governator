@@ -25,8 +25,12 @@ const help = `available commands are:
     exit                  : close the shell
     help                  : show help`
 
-func sendCommand(args []string) (bool, error) {
-	conn, err := net.Dial("unix", SocketPath)
+func sendCommand(serverAddr string, args []string) (bool, error) {
+	scheme, addr, err := parseServerAddr(serverAddr)
+	if err != nil {
+		return false, err
+	}
+	conn, err := net.Dial(scheme, addr)
 	if err != nil {
 		return false, err
 	}
@@ -76,7 +80,7 @@ func sendCommand(args []string) (bool, error) {
 	return ok, nil
 }
 
-func evalCommand(args []string) (bool, error) {
+func evalCommand(addr string, args []string) (bool, error) {
 	if len(args) > 0 {
 		switch strings.ToLower(args[0]) {
 		case "quit", "exit":
@@ -86,17 +90,17 @@ func evalCommand(args []string) (bool, error) {
 			return true, nil
 		}
 	}
-	return sendCommand(args)
+	return sendCommand(addr, args)
 }
 
-func clientMain(args []string) (bool, error) {
+func clientMain(addr string, args []string) (bool, error) {
 	createGovernatorUserDir()
 	if len(args) > 0 {
-		return evalCommand(args)
+		return evalCommand(addr, args)
 	}
 	r := newLineReader()
 	fmt.Printf("%s interactive shell\nType exit or press control+d to end\nType help to show available commands\n\n", AppName)
-	sendCommand([]string{"list"})
+	sendCommand(addr, []string{"list"})
 	for {
 		s, err := r.ReadLine()
 		if err == io.EOF {
@@ -111,7 +115,7 @@ func clientMain(args []string) (bool, error) {
 				fmt.Fprintf(os.Stderr, "error reading input: %s\n", err)
 				continue
 			}
-			if _, err := evalCommand(fields); err != nil {
+			if _, err := evalCommand(addr, fields); err != nil {
 				fmt.Fprintf(os.Stderr, "error executing command: %s\n", err)
 			}
 		}

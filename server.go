@@ -30,19 +30,12 @@ func (g *Governator) serveConn(conn net.Conn) error {
 				cmd = ""
 			}
 			if cmd != "" && (cmd == "log" || args[1] != "all") {
-				g.mu.Lock()
-				for _, v := range g.services {
-					if sn := v.Name(); sn == args[1] {
-						st = v
-						name = sn
-						break
-					}
-				}
-				g.mu.Unlock()
-				if st == nil {
-					err = encodeResponse(conn, respErr, fmt.Sprintf("no service named %s\n", args[1]))
+				st, err = g.serviceByName(args[1])
+				if err != nil {
+					err = encodeResponse(conn, respErr, fmt.Sprintf("%s\n", err))
 					cmd = ""
 				}
+				name = args[1]
 			}
 		}
 		switch cmd {
@@ -157,9 +150,9 @@ func (g *Governator) serveConn(conn net.Conn) error {
 			var value string
 			switch strings.ToLower(args[1]) {
 			case "config-dir":
-				value = *configDir
+				value = g.configDir
 			case "services-dir":
-				value = servicesDir()
+				value = g.servicesDir()
 			}
 			if !filepath.IsAbs(value) {
 				p, err := filepath.Abs(value)
@@ -207,15 +200,25 @@ func (g *Governator) serveConn(conn net.Conn) error {
 	return encodeResponse(conn, respEnd, "")
 }
 
-func (g *Governator) startServer(q *quit) error {
-	os.Remove(SocketPath)
-	server, err := net.Listen("unix", SocketPath)
+func (g *Governator) startServer() error {
+	q := newQuit()
+	g.quits = append(g.quits, q)
+	scheme, addr, err := parseServerAddr(g.ServerAddr)
 	if err != nil {
 		return err
 	}
-	if gid := getGroupId(AppName); gid >= 0 {
-		os.Chown(SocketPath, 0, gid)
-		os.Chmod(SocketPath, 0775)
+	if scheme == "unix" {
+		os.Remove(addr)
+	}
+	server, err := net.Listen(scheme, addr)
+	if err != nil {
+		return err
+	}
+	if scheme == "unix" {
+		if gid := getGroupId(AppName); gid >= 0 {
+			os.Chown(addr, 0, gid)
+			os.Chmod(addr, 0775)
+		}
 	}
 	conns := make(chan net.Conn, 10)
 	go func() {
@@ -232,7 +235,9 @@ func (g *Governator) startServer(q *quit) error {
 		for {
 			select {
 			case <-q.stop:
-				os.Remove(SocketPath)
+				if scheme == "unix" {
+					os.Remove(addr)
+				}
 				q.sendStopped()
 				return
 			case conn := <-conns:

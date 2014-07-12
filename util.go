@@ -22,9 +22,23 @@ func newQuit() *quit {
 }
 
 func (q *quit) sendStop() {
-	q.stop <- true
+	select {
+	case q.stop <- true:
+	default:
+	}
 }
 
 func (q *quit) sendStopped() {
-	q.stopped <- true
+	select {
+	case q.stopped <- true:
+	default:
+	}
+}
+
+func (q *quit) waitForStop() {
+	<-q.stop
+}
+
+func (q *quit) waitForStopped() {
+	<-q.stopped
 }
