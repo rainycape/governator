@@ -53,6 +53,9 @@ func (g *Governator) ensureUniqueName(cfg *Config) {
 			}
 		}
 		if unique {
+			if cfg.Log != nil {
+				cfg.Log.Name = cfg.Name
+			}
 			break
 		}
 	}
