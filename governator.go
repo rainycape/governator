@@ -32,9 +32,13 @@ type Governator struct {
 }
 
 func NewGovernator(configDir string) (*Governator, error) {
+	mon, err := newMonitor()
+	if err != nil {
+		return nil, err
+	}
 	return &Governator{
 		configDir: configDir,
-		monitor:   &Monitor{quit: newQuit()},
+		monitor:   mon,
 	}, nil
 }
 

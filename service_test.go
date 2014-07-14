@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -241,19 +240,9 @@ func TestServiceMaxOpenFiles(t *testing.T) {
 	}
 }
 
-func countThreads() (int, error) {
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("ps -eLf|awk '{print $2}' |grep %d |wc -l", os.Getpid()))
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return 0, err
-	}
-	return strconv.Atoi(strings.TrimSpace(stdout.String()))
-}
-
-func TestThreads(t *testing.T) {
+func TestNumGoroutines(t *testing.T) {
 	const (
-		numServices = 10
+		numServices = 20
 	)
 	cfg := &Config{
 		Command: "yes",
@@ -263,21 +252,21 @@ func TestThreads(t *testing.T) {
 	g := prepareGovernatorTest(t)
 	defer afterGovernatorTest(t, g)
 	for ii := 0; ii < numServices; ii++ {
-		if _, err := g.AddService(cfg); err != nil {
+		cpy := *cfg
+		setLogger(t, &cpy, "file")
+		if _, err := g.AddService(&cpy); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := g.Start("all"); err != nil {
 		t.Fatal(err)
 	}
-	threads, err := countThreads()
-	if err != nil {
-		t.Fatal(err)
+	time.Sleep(10 * time.Second)
+	if n := runtime.NumGoroutine(); n > numServices {
+		t.Errorf("using %d goroutines for %d services", n, numServices)
+	} else {
+		t.Errorf("using %d goroutines for %d services", n, numServices)
 	}
-	fmt.Printf("%d threads, %d goroutines\n", threads, runtime.NumGoroutine())
-	stack := make([]byte, 1024*100)
-	stack = stack[:runtime.Stack(stack, true)]
-	fmt.Printf("STACK:\n %s\n", string(stack))
 }
 
 func init() {

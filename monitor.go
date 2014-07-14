@@ -8,28 +8,43 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"gopkgs.com/aio.v1"
 )
 
 type waiter struct {
 	cmd     *exec.Cmd
 	fn      func(error)
 	readers []io.ReadCloser
-	writers []io.WriteCloser
+	writers []io.Writer
+	closers []io.Closer
 }
 
 type Monitor struct {
 	sync.Mutex
 	waiters []*waiter
+	set     *aio.Set
 	quit    *quit
+}
+
+func newMonitor() (*Monitor, error) {
+	s, err := aio.New()
+	if err != nil {
+		return nil, err
+	}
+	return &Monitor{
+		set:  s,
+		quit: newQuit(),
+	}, nil
 }
 
 func (m *Monitor) removeCmd(cmd *exec.Cmd) {
 	for ii, v := range m.waiters {
 		if v.cmd == cmd {
 			for ii, r := range v.readers {
-				r.Close()
+				v.closers[ii].Close()
 				io.Copy(v.writers[ii], r)
-				v.writers[ii].Close()
+				r.Close()
 			}
 			m.waiters = append(m.waiters[:ii], m.waiters[ii+1:]...)
 			break
@@ -73,6 +88,9 @@ func (m *Monitor) waitForExited() {
 func (m *Monitor) Run() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Signal(syscall.SIGCHLD))
+	if m.set != nil {
+		go m.set.Run()
+	}
 loop:
 	for {
 		select {
@@ -85,6 +103,9 @@ loop:
 	}
 	signal.Stop(ch)
 	close(ch)
+	if m.set != nil {
+		m.set.Stop()
+	}
 }
 
 func (m *Monitor) Start(cmd *exec.Cmd, logger *Logger, fn func(error)) error {
@@ -103,6 +124,27 @@ func (m *Monitor) Start(cmd *exec.Cmd, logger *Logger, fn func(error)) error {
 	return err
 }
 
-func (m *Monitor) setOutputFd(wa *waiter, out *io.Writer, input io.Writer) {
-	*out = input
+func (m *Monitor) setOutputFd(wa *waiter, output *io.Writer, dest io.Writer) {
+	if m.set != nil {
+		r, w, err := os.Pipe()
+		if err == nil {
+			if err := syscall.SetNonblock(int(r.Fd()), true); err == nil {
+				var buf [1024 * 2]byte
+				err := m.set.Add(r, aio.In, nil, func(_ *aio.Event) {
+					n, _ := r.Read(buf[:])
+					dest.Write(buf[:n])
+				})
+				if err == nil {
+					wa.readers = append(wa.readers, r)
+					wa.writers = append(wa.writers, dest)
+					wa.closers = append(wa.closers, w)
+					*output = w
+					return
+				}
+				r.Close()
+				w.Close()
+			}
+		}
+	}
+	*output = dest
 }
