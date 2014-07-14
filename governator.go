@@ -212,15 +212,14 @@ func (g *Governator) serviceByName(name string) (*Service, error) {
 }
 
 func (g *Governator) AddService(cfg *Config) (string, error) {
-	cpy := *cfg
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.ensureUniqueName(&cpy)
-	s := newService(&cpy)
+	g.ensureUniqueName(cfg)
+	s := newService(cfg)
 	s.monitor = g.monitor
 	g.services = append(g.services, s)
 	g.sortServices()
-	return cpy.Name, nil
+	return cfg.Name, nil
 }
 
 func (g *Governator) Start(name string) error {
