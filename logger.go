@@ -19,7 +19,8 @@ const (
 
 var (
 	// Altered during tests
-	logDir = LogDir
+	logDir    = LogDir
+	lineBreak = []byte{'\n'}
 )
 
 type Out struct {
@@ -29,21 +30,32 @@ type Out struct {
 }
 
 func (o *Out) Write(b []byte) (int, error) {
-	if len(o.buf) == 0 && bytes.IndexByte(b, '\n') == (len(b)-1) {
-		o.Logger.Write(o.prefix, b)
-	} else {
+	if bytes.IndexByte(b, '\n') < 0 {
 		o.buf = append(o.buf, b...)
-		p := bytes.IndexByte(o.buf, '\n')
-		for p >= 0 {
-			rem := len(o.buf) - p - 1
-			o.Logger.Write(o.prefix, o.buf[:p+1])
-			if rem > 0 {
-				copy(o.buf, o.buf[p+1:])
-			}
-			o.buf = o.buf[:rem]
-			p = bytes.IndexByte(o.buf, '\n')
-		}
+		return len(b), nil
 	}
+	rem := b
+	for len(rem) > 0 {
+		p := bytes.LastIndex(rem, lineBreak)
+		if p < 0 {
+			break
+		}
+		line := rem[:p+1]
+		rem = rem[p+1:]
+		if len(o.buf) == 0 {
+			// Nothing in the buffer, just write the line
+			o.Logger.Write(o.prefix, line)
+			continue
+		}
+		// Construct a line from the current line and the buffer. Doesn't
+		// matter if we trash the buffer because we're going to write and then
+		// discard it.
+		o.buf = append(o.buf, line...)
+		o.Logger.Write(o.prefix, o.buf)
+		o.buf = o.buf[:0]
+	}
+	// Append remaining data to buffer
+	o.buf = append(o.buf, rem...)
 	return len(b), nil
 }
 
