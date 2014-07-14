@@ -75,6 +75,9 @@ func (l *Logger) Close() error {
 }
 
 func (l *Logger) Write(prefix string, b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
 	now := time.Now().Unix()
 	l.mu.Lock()
 	defer l.mu.Unlock()
