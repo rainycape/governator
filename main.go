@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"os/user"
 	"syscall"
 
 	"gnd.la/log"
@@ -67,11 +66,7 @@ func main() {
 	case *daemon:
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt, os.Signal(syscall.SIGTERM), os.Kill)
-		u, err := user.Current()
-		if err != nil {
-			die(err)
-		}
-		if u.Uid != "0" {
+		if os.Geteuid() != 0 {
 			die(errors.New("govenator daemon must be run as root"))
 		}
 		g, err := NewGovernator(*configDir)
