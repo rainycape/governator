@@ -155,8 +155,7 @@ func (s *Service) Run(ch chan<- error) {
 	cmd, err := s.Config.Cmd()
 	if err != nil {
 		s.State = StateFailed
-		s.errorf("could not initialize: %s", err)
-		s.sendErr(&ch, err)
+		s.sendErr(&ch, fmt.Errorf("could not initialize service: %s", err))
 		return
 	}
 	s.Cmd = cmd
