@@ -265,7 +265,7 @@ func TestNumGoroutines(t *testing.T) {
 	if n := runtime.NumGoroutine(); n > numServices {
 		t.Errorf("using %d goroutines for %d services", n, numServices)
 	} else {
-		t.Errorf("using %d goroutines for %d services", n, numServices)
+		t.Logf("using %d goroutines for %d services", n, numServices)
 	}
 }
 
