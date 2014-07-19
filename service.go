@@ -273,7 +273,7 @@ func (s *Service) stopTimer() {
 func (s *Service) startService() error {
 	ch := make(chan error)
 	s.stopTimerLocking()
-	s.Run(ch)
+	go s.Run(ch)
 	err := <-ch
 	close(ch)
 	return err
