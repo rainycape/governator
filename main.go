@@ -26,6 +26,7 @@ func testConfigurations(g *Governator) {
 	}
 	ok := true
 	for _, v := range configs {
+		fmt.Println("checking", v.Name)
 		if v.Err != nil {
 			fmt.Fprintf(os.Stderr, "error in %s: %s\n", v.Name, v.Err)
 			ok = false
