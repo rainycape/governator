@@ -107,5 +107,5 @@ func parseServerAddr(addr string) (string, string, error) {
 	}
 	scheme := u.Scheme
 	u.Scheme = ""
-	return scheme, strings.TrimPrefix("//", u.String()), nil
+	return scheme, strings.TrimPrefix(u.String(), "//"), nil
 }
