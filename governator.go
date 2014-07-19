@@ -76,7 +76,6 @@ func (g *Governator) serviceByFilename(name string) (int, *Service) {
 
 func (g *Governator) startWatching() error {
 	q := newQuit()
-	g.quits = append(g.quits, q)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -143,6 +142,9 @@ func (g *Governator) startWatching() error {
 	if err := watcher.Watch(g.servicesDir()); err != nil {
 		return err
 	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.quits = append(g.quits, q)
 	return nil
 }
 

@@ -202,7 +202,6 @@ func (g *Governator) serveConn(conn net.Conn) error {
 
 func (g *Governator) startServer() error {
 	q := newQuit()
-	g.quits = append(g.quits, q)
 	scheme, addr, err := parseServerAddr(g.ServerAddr)
 	if err != nil {
 		return err
@@ -249,5 +248,8 @@ func (g *Governator) startServer() error {
 			}
 		}
 	}()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.quits = append(g.quits, q)
 	return nil
 }
