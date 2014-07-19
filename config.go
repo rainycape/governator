@@ -136,7 +136,8 @@ func (g *Governator) parseConfig(filename string) *Config {
 		cfg.Log = new(Logger)
 		cfg.Log.Parse("")
 	}
-	cfg.Log.Name = cfg.ServiceName()
+	cfg.Name = cfg.ServiceName()
+	cfg.Log.Name = cfg.Name
 	return cfg
 }
 
