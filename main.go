@@ -74,6 +74,9 @@ func main() {
 			die(fmt.Errorf("error initializing daemon: %s", err))
 		}
 		g.ServerAddr = *serverAddr
+		if err := g.LoadServices(); err != nil {
+			die(fmt.Errorf("error loading services: %s", err))
+		}
 		go func() {
 			// Wait for signal
 			<-c
