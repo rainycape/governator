@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"code.google.com/p/go.exp/fsnotify"
 	"gnd.la/log"
+	"gopkg.in/fsnotify.v0"
 )
 
 func formatTime(t time.Time) string {
