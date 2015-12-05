@@ -65,13 +65,19 @@ func (g *Governator) ensureUniqueName(cfg *Config) {
 	}
 }
 
-func (g *Governator) serviceByFilename(name string) (int, *Service) {
+func (g *Governator) serviceByFilenameLocked(name string) (int, *Service) {
 	for ii, v := range g.services {
 		if v.Config.File == name {
 			return ii, v
 		}
 	}
 	return -1, nil
+}
+
+func (g *Governator) serviceByFilename(name string) (int, *Service) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.serviceByFilenameLocked(name)
 }
 
 func (g *Governator) startWatching() error {
@@ -98,22 +104,23 @@ func (g *Governator) startWatching() error {
 					// service configuration, we only receive a CREATE. Check
 					// if we already have a configuration with that name and, in
 					// that case, stop it, update its config and restart.
-					if _, s := g.serviceByFilename(name); s != nil {
+					if _, s := g.serviceByFilenameLocked(name); s != nil {
 						s.updateConfig(cfg)
 						g.sortServices()
 						s.Stop()
 						s.Start()
 					} else {
-						name, err := g.AddService(cfg)
+						name, err := g.addServiceLocked(cfg)
 						if err != nil {
 							log.Errorf("error adding service %s: %s", cfg.ServiceName(), err)
 						} else if cfg.Start {
-							s, _ := g.serviceByName(name)
+							log.Debugf("starting service %s", name)
+							s, _ := g.serviceByNameLocked(name)
 							s.Start()
 						}
 					}
 				case ev.IsDelete() || ev.IsRename():
-					if ii, s := g.serviceByFilename(name); s != nil {
+					if ii, s := g.serviceByFilenameLocked(name); s != nil {
 						log.Debugf("removed service %s", s.Name())
 						if s.State == StateStarted {
 							s.Stop()
@@ -121,7 +128,7 @@ func (g *Governator) startWatching() error {
 						g.services = append(g.services[:ii], g.services[ii+1:]...)
 					}
 				case ev.IsModify():
-					if _, s := g.serviceByFilename(name); s != nil {
+					if _, s := g.serviceByFilenameLocked(name); s != nil {
 						cfg := g.parseConfig(name)
 						s.updateConfig(cfg)
 						g.sortServices()
@@ -206,9 +213,7 @@ func (g *Governator) sortServices() {
 	servicesByPriority(g.services).Sort()
 }
 
-func (g *Governator) serviceByName(name string) (*Service, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+func (g *Governator) serviceByNameLocked(name string) (*Service, error) {
 	for _, v := range g.services {
 		if v.Name() == name {
 			return v, nil
@@ -217,15 +222,25 @@ func (g *Governator) serviceByName(name string) (*Service, error) {
 	return nil, fmt.Errorf("no service named %s", name)
 }
 
-func (g *Governator) AddService(cfg *Config) (string, error) {
+func (g *Governator) serviceByName(name string) (*Service, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	return g.serviceByNameLocked(name)
+}
+
+func (g *Governator) addServiceLocked(cfg *Config) (string, error) {
 	g.ensureUniqueName(cfg)
 	s := newService(cfg)
 	s.monitor = g.monitor
 	g.services = append(g.services, s)
 	g.sortServices()
 	return cfg.Name, nil
+}
+
+func (g *Governator) AddService(cfg *Config) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.addServiceLocked(cfg)
 }
 
 func (g *Governator) Start(name string) error {
