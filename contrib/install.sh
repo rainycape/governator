@@ -10,6 +10,10 @@ init_system() {
         echo -n "upstart"
         return
     fi
+    if test -x /etc/systemd/system; then
+        echo -n "systemd"
+        return
+    fi
 } 
 
 if test -z $GET; then
@@ -29,6 +33,11 @@ case `init_system` in
     "upstart")
         $GET $HOST/contrib/upstart/governator.conf -O /etc/init/governator.conf
         service governator start
+        ;;
+    "systemd")
+        $GET $HOST/contrib/systemd/governator.service -O /etc/systemd/system/governator.service
+        systemctl start governator.service
+        systemctl enable governator.service
         ;;
     "chkconfig")
         ;;
