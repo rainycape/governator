@@ -14,7 +14,7 @@ import (
 	"gnd.la/log"
 	"gnd.la/util/stringutil"
 
-	"gopkgs.com/dl.v1"
+	"gopkg.in/rainycape/dl.v0"
 )
 
 const help = `available commands are:
