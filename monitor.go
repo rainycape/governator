@@ -9,7 +9,7 @@ import (
 	"sync"
 	"syscall"
 
-	"gopkgs.com/aio.v1"
+	"github.com/rainycape/aio"
 )
 
 type waiter struct {
