@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"gnd.la/util/stringutil"
+	"github.com/fiam/stringutil"
 )
 
 const (

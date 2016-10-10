@@ -11,7 +11,8 @@ import (
 	"strings"
 
 	"gnd.la/log"
-	"gnd.la/util/stringutil"
+
+	"github.com/fiam/stringutil"
 )
 
 const help = `available commands are:

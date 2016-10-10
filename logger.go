@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"gnd.la/util/parseutil"
-	"gnd.la/util/stringutil"
+
+	"github.com/fiam/stringutil"
 )
 
 const (

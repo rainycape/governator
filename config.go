@@ -14,7 +14,8 @@ import (
 
 	"gnd.la/config"
 	"gnd.la/log"
-	"gnd.la/util/stringutil"
+
+	"github.com/fiam/stringutil"
 )
 
 type Config struct {
