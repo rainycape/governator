@@ -9,8 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"gnd.la/util/parseutil"
-
+	"github.com/fiam/parseutil"
 	"github.com/fiam/stringutil"
 )
 
