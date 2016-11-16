@@ -102,10 +102,11 @@ func (c *Config) Cmd() (*exec.Cmd, error) {
 	if uid != 0 || gid != 0 {
 		cred = &syscall.Credential{Uid: uid, Gid: gid}
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{
+	attr := &syscall.SysProcAttr{
 		Credential: cred,
-		Pdeathsig:  syscall.SIGQUIT, // Send SIGQUIT to children if parent exits
 	}
+	prepareSysProcAttr(attr)
+	cmd.SysProcAttr = attr
 	log.Debugf("%s wd: %s, env: %s, cred: %+v", c.ServiceName(), dir, cmd.Env, cred)
 	return cmd, nil
 }
